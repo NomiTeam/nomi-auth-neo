@@ -1,0 +1,8 @@
+/target/
+/.env
+/data/
+/backups/
+/artifacts/
+/.tools/
+/.pytest_cache/
+__pycache__/
