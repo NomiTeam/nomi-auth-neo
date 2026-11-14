@@ -415,10 +415,10 @@ fn load_signing_key(path: &Path) -> Result<RsaPrivateKey> {
         temporary.write_all(pem.as_bytes())?;
         temporary.as_file().sync_all()?;
         // Publish complete PEM bytes atomically, and never replace an existing identity.
-        if let Err(error) = temporary.persist_noclobber(path) {
-            if error.error.kind() != std::io::ErrorKind::AlreadyExists {
-                return Err(error.error.into());
-            }
+        if let Err(error) = temporary.persist_noclobber(path)
+            && error.error.kind() != std::io::ErrorKind::AlreadyExists
+        {
+            return Err(error.error.into());
         }
     }
     let pem = fs::read_to_string(path)?;

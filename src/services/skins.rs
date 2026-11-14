@@ -247,10 +247,10 @@ fn publish_skin(directory: &Path, texture_hash: &str, content: &[u8]) -> Result<
     let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
     temporary.write_all(content)?;
     temporary.as_file().sync_all()?;
-    if let Err(error) = temporary.persist_noclobber(target) {
-        if error.error.kind() != std::io::ErrorKind::AlreadyExists {
-            return Err(error.error.into());
-        }
+    if let Err(error) = temporary.persist_noclobber(target)
+        && error.error.kind() != std::io::ErrorKind::AlreadyExists
+    {
+        return Err(error.error.into());
     }
     Ok(())
 }

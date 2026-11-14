@@ -158,15 +158,14 @@ impl Logins {
         self.sessions
             .validate_retry(retry_id, "无效的登录请求标识")?;
         let mut transaction = self.database.write().await?;
-        if !legacy {
-            if let Some(result) = self
+        if !legacy
+            && let Some(result) = self
                 .sessions
                 .login_retry(transaction.connection(), id, poll, retry_id)
                 .await?
-            {
-                transaction.commit().await?;
-                return Ok(Reply::ok(result));
-            }
+        {
+            transaction.commit().await?;
+            return Ok(Reply::ok(result));
         }
         let record = self
             .find_request(transaction.connection(), id, poll, legacy)
