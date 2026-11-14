@@ -1,0 +1,42 @@
+[package]
+name = "nomi-auth-neo"
+version = "0.1.0"
+edition = "2024"
+description = "Passwordless group authentication and Yggdrasil service"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["multipart", "query"] }
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
+filetime = "0.2"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+hex = "0.4"
+hmac = "0.12"
+image = { version = "0.25", default-features = false, features = ["png"] }
+percent-encoding = "2"
+rand = "0.8"
+rsa = { version = "0.9", features = ["pem", "sha1", "sha2"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha1 = { version = "0.10", features = ["oid"] }
+sha2 = { version = "0.10", features = ["oid"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "mysql", "any", "derive"] }
+subtle = "2"
+tar = "0.4"
+tempfile = "3"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
