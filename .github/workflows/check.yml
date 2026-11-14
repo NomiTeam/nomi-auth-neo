@@ -1,0 +1,93 @@
+name: Check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: test-only-root
+          MARIADB_DATABASE: nomi_auth_test_ci
+          MARIADB_USER: nomi_auth_test_user
+          MARIADB_PASSWORD: test-only-password
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      NOMI_TEST_MYSQL_DATABASE: nomi_auth_test_ci
+      NOMI_TEST_MYSQL_USER: nomi_auth_test_user
+      NOMI_TEST_MYSQL_PASSWORD: test-only-password
+      NOMI_TEST_MYSQL_HOST: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: NomiTeam/nomi-auth
+          ref: 8110ee4
+          path: .reference/nomi-auth
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: astral-sh/setup-uv@v6
+      - name: Configure isolated database port
+        run: echo "NOMI_TEST_MYSQL_PORT=${{ job.services.mariadb.ports[3306] }}" >> "$GITHUB_ENV"
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --all-targets
+      - run: cargo test --locked --test storage -- --ignored --test-threads=1
+      - run: cargo build --locked
+      - name: Check Python and Rust data compatibility
+        run: >-
+          uv run --project .reference/nomi-auth python tests/interop_storage.py
+          --neo-binary target/debug/nomi-auth-neo
+          --python-reference .reference/nomi-auth
+      - name: Run previous HTTP contracts on both databases
+        env:
+          PYTHONPATH: .reference/nomi-auth:tests/compatibility
+        run: >-
+          uv run --project .reference/nomi-auth pytest .reference/nomi-auth/tests/test_service.py
+          -p neo_bridge --neo-binary target/debug/nomi-auth-neo
+          --ref .reference/nomi-auth -q
+
+  linux-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install cargo-zigbuild
+      - run: cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
+      - name: Verify standalone executable
+        run: |
+          binary=target/x86_64-unknown-linux-musl/release/nomi-auth-neo
+          file "$binary" | grep -E 'statically linked|static-pie linked'
+          if readelf -l "$binary" | grep INTERP; then exit 1; fi
+          if readelf -d "$binary" | grep NEEDED; then exit 1; fi
+          "$binary" --version
+          mkdir -p artifacts/linux-x86_64
+          cp "$binary" artifacts/linux-x86_64/
+          cp THIRD_PARTY_NOTICES.md artifacts/linux-x86_64/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nomi-auth-neo-linux-x86_64
+          path: artifacts/linux-x86_64/
+          retention-days: 7
