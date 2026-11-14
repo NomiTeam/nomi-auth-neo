@@ -160,7 +160,7 @@ impl Accounts {
         event: &E,
         operation: &str,
     ) -> Result<Option<Value>> {
-        let record = sqlx::query("SELECT payload_hash,CAST(result AS CHAR) AS result FROM receipts WHERE app_id=? AND event_id=? AND operation=?")
+        let record = sqlx::query("SELECT payload_hash,result FROM receipts WHERE app_id=? AND event_id=? AND operation=?")
             .bind(event.app_id()).bind(event.event_id()).bind(operation).fetch_optional(connection).await?;
         let Some(record) = record else {
             return Ok(None);
@@ -172,7 +172,9 @@ impl Accounts {
                 409,
             ));
         }
-        Ok(Some(parse_result(&record.try_get::<String, _>("result")?)?))
+        Ok(Some(parse_result(&super::models::text(
+            &record, "result",
+        )?)?))
     }
 
     pub async fn save_receipt<E: Event>(

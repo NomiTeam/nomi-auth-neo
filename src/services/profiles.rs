@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use sqlx::{AnyConnection, Row};
+use sqlx::AnyConnection;
 
 use super::accounts::Accounts;
 use super::models::{MemberOperation, NameRequest};
@@ -97,13 +97,12 @@ impl Profiles {
             .rename_profile(connection, &account.id, &payload.name)
             .await?;
         let result = if game_profile.is_some() {
-            let record = sqlx::query(
-                "SELECT CAST(client_token AS CHAR) AS client_token FROM tokens WHERE hash=?",
-            )
-            .bind(digest(token))
-            .fetch_one(&mut *connection)
-            .await?;
-            let client_token: Option<String> = record.try_get("client_token")?;
+            let record = sqlx::query("SELECT client_token FROM tokens WHERE hash=?")
+                .bind(digest(token))
+                .fetch_one(&mut *connection)
+                .await?;
+            let client_token: Option<String> =
+                super::models::optional_text(&record, "client_token")?;
             let selected = json!({"id":profile.uuid,"name":payload.name});
             json!({"login_name":account.login_name,"game":{"accessToken":token,"clientToken":client_token,
                 "selectedProfile":selected,"availableProfiles":[selected]}})

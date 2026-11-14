@@ -9,7 +9,7 @@ use rsa::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
-use sqlx::{AnyConnection, Row};
+use sqlx::AnyConnection;
 
 use super::{Account, Auth, Profile, TokenOptions};
 use crate::{
@@ -140,13 +140,11 @@ impl Game {
             .account_for_token(connection, &fields.access_token, "game")
             .await?;
         let token_hash = digest(&fields.access_token);
-        let row = sqlx::query(
-            "SELECT CAST(client_token AS CHAR) AS client_token FROM tokens WHERE hash=?",
-        )
-        .bind(&token_hash)
-        .fetch_one(&mut *connection)
-        .await?;
-        let client_token: Option<String> = row.try_get("client_token")?;
+        let row = sqlx::query("SELECT client_token FROM tokens WHERE hash=?")
+            .bind(&token_hash)
+            .fetch_one(&mut *connection)
+            .await?;
+        let client_token: Option<String> = super::models::optional_text(&row, "client_token")?;
         if fields.client_token.is_some() && fields.client_token != client_token {
             return Err(Error::problem("INVALID_TOKEN", "Invalid token.", 403));
         }
@@ -215,10 +213,12 @@ impl Game {
         let fields = GameRequest::parse(request)?;
         let mut transaction = self.database.write().await?;
         let token_hash = digest(&fields.access_token);
-        let row = sqlx::query("SELECT CAST(client_token AS CHAR) AS client_token FROM tokens WHERE hash=? AND kind='game'")
-            .bind(&token_hash).fetch_optional(transaction.connection()).await?;
+        let row = sqlx::query("SELECT client_token FROM tokens WHERE hash=? AND kind='game'")
+            .bind(&token_hash)
+            .fetch_optional(transaction.connection())
+            .await?;
         if let Some(row) = row {
-            let stored_client: Option<String> = row.try_get("client_token")?;
+            let stored_client: Option<String> = super::models::optional_text(&row, "client_token")?;
             if fields.client_token.is_none() || fields.client_token == stored_client {
                 sqlx::query("DELETE FROM tokens WHERE hash=?")
                     .bind(&token_hash)

@@ -221,7 +221,7 @@ impl Sessions {
         let Some(retry_id) = retry_id else {
             return Ok(None);
         };
-        let retry = sqlx::query("SELECT poll_hash,request_hash,CAST(nonce AS CHAR) AS nonce FROM login_retries WHERE request_id=? AND expires_at>?")
+        let retry = sqlx::query("SELECT poll_hash,request_hash,nonce FROM login_retries WHERE request_id=? AND expires_at>?")
             .bind(request).bind(now()).fetch_optional(&mut *connection).await?;
         let Some(retry) = retry else {
             return Ok(None);
@@ -232,7 +232,7 @@ impl Sessions {
             return Ok(None);
         }
 
-        let nonce: String = retry.try_get("nonce")?;
+        let nonce: String = super::models::text(&retry, "nonce")?;
         let game = derive_token(poll, retry_id, &nonce, "game");
         let refresh = derive_token(poll, retry_id, &nonce, "refresh");
         let account = self
@@ -314,8 +314,13 @@ impl Sessions {
         let Some(retry_id) = retry_id else {
             return Ok(None);
         };
-        let retry = sqlx::query("SELECT request_hash,CAST(nonce AS CHAR) AS nonce FROM refresh_retries WHERE old_hash=? AND expires_at>?")
-            .bind(digest(seed)).bind(now()).fetch_optional(&mut *connection).await?;
+        let retry = sqlx::query(
+            "SELECT request_hash,nonce FROM refresh_retries WHERE old_hash=? AND expires_at>?",
+        )
+        .bind(digest(seed))
+        .bind(now())
+        .fetch_optional(&mut *connection)
+        .await?;
         let Some(retry) = retry else {
             return Ok(None);
         };
@@ -323,7 +328,7 @@ impl Sessions {
         if !same(&request_hash, &digest(retry_id)) {
             return Ok(None);
         }
-        let nonce: String = retry.try_get("nonce")?;
+        let nonce: String = super::models::text(&retry, "nonce")?;
         let game = derive_token(seed, retry_id, &nonce, "game");
         let refresh = derive_token(seed, retry_id, &nonce, "refresh");
         let account = self
@@ -388,21 +393,23 @@ impl Sessions {
     }
 
     pub async fn token(&self, connection: &mut AnyConnection, hash: &str) -> Result<Token> {
-        sqlx::query_as::<_, Token>(
-            "SELECT account_id,CAST(client_token AS CHAR) AS client_token FROM tokens WHERE hash=?",
-        )
-        .bind(hash)
-        .fetch_optional(connection)
-        .await?
-        .ok_or_else(|| Error::problem("INVALID_TOKEN", "令牌无效或已过期", 403))
+        sqlx::query_as::<_, Token>("SELECT account_id,client_token FROM tokens WHERE hash=?")
+            .bind(hash)
+            .fetch_optional(connection)
+            .await?
+            .ok_or_else(|| Error::problem("INVALID_TOKEN", "令牌无效或已过期", 403))
     }
 
     pub async fn revoke(&self, request: &Request) -> Result<Reply> {
         let token = request.bearer()?;
         let mut transaction = self.database.write().await?;
         let connection = transaction.connection();
-        let stored = sqlx::query_as::<_, Token>("SELECT account_id,CAST(client_token AS CHAR) AS client_token FROM tokens WHERE hash=? AND kind='refresh'")
-            .bind(digest(token)).fetch_optional(&mut *connection).await?;
+        let stored = sqlx::query_as::<_, Token>(
+            "SELECT account_id,client_token FROM tokens WHERE hash=? AND kind='refresh'",
+        )
+        .bind(digest(token))
+        .fetch_optional(&mut *connection)
+        .await?;
         if let Some(stored) = stored {
             sqlx::query("DELETE FROM tokens WHERE account_id=? AND client_token=? AND kind IN ('game','refresh')")
                 .bind(stored.account_id).bind(stored.client_token).execute(connection).await?;

@@ -29,13 +29,11 @@ pub struct Profile {
     pub last_renamed_at: Option<i64>,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct Token {
     pub account_id: String,
     pub client_token: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct LoginRecord {
     pub id: String,
     pub poll_hash: String,
@@ -49,7 +47,6 @@ pub(crate) struct LoginRecord {
     pub error: Option<String>,
 }
 
-#[derive(sqlx::FromRow)]
 pub(crate) struct RegistrationRecord {
     pub id: String,
     pub poll_hash: String,
@@ -201,5 +198,106 @@ mod tests {
             serde_json::to_string(&named).unwrap(),
             r#"{"bot_app_id":"app","group_openid":"group","member_openid":"member","event_id":"event","name":"Alice"}"#
         );
+    }
+}
+
+/// SQLx Any exposes MariaDB TEXT as bytes and SQLite TEXT as strings.
+pub(crate) fn optional_text(
+    row: &sqlx::any::AnyRow,
+    column: &str,
+) -> std::result::Result<Option<String>, sqlx::Error> {
+    use sqlx::Row;
+    match row.try_get::<Option<String>, _>(column) {
+        Ok(value) => Ok(value),
+        Err(_) => row
+            .try_get::<Option<Vec<u8>>, _>(column)?
+            .map(String::from_utf8)
+            .transpose()
+            .map_err(|error| sqlx::Error::Decode(Box::new(error))),
+    }
+}
+
+pub(crate) fn text(
+    row: &sqlx::any::AnyRow,
+    column: &str,
+) -> std::result::Result<String, sqlx::Error> {
+    optional_text(row, column)?
+        .ok_or_else(|| sqlx::Error::Decode(Box::new(sqlx::error::UnexpectedNullError)))
+}
+
+macro_rules! text_row {
+    ($model:ty, [$($field:ident),*], $text:ident) => {
+        impl<'r> sqlx::FromRow<'r, sqlx::any::AnyRow> for $model {
+            fn from_row(row: &'r sqlx::any::AnyRow) -> std::result::Result<Self, sqlx::Error> {
+                use sqlx::Row;
+                Ok(Self {
+                    $($field: row.try_get(stringify!($field))?,)*
+                    $text: optional_text(row, stringify!($text))?,
+                })
+            }
+        }
+    };
+}
+
+text_row!(Token, [account_id], client_token);
+text_row!(
+    LoginRecord,
+    [
+        id,
+        poll_hash,
+        account_id,
+        status,
+        expires_at,
+        session_issued,
+        app_id,
+        group_id,
+        member_id
+    ],
+    error
+);
+text_row!(
+    RegistrationRecord,
+    [
+        id,
+        poll_hash,
+        name,
+        status,
+        expires_at,
+        account_id,
+        session_issued
+    ],
+    error
+);
+
+#[cfg(test)]
+mod database_text_tests {
+    use super::{Token, optional_text, text};
+    use sqlx::any::AnyPoolOptions;
+
+    #[tokio::test]
+    async fn decodes_database_strings_bytes_and_nulls() {
+        sqlx::any::install_default_drivers();
+        let pool = AnyPoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let row = sqlx::query("SELECT 'plain' AS string_value,CAST('legacy' AS BLOB) AS bytes_value,NULL AS empty_value")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(text(&row, "string_value").unwrap(), "plain");
+        assert_eq!(text(&row, "bytes_value").unwrap(), "legacy");
+        assert_eq!(optional_text(&row, "empty_value").unwrap(), None);
+        let token = sqlx::query_as::<_, Token>(
+            "SELECT 'account' AS account_id,CAST('client' AS BLOB) AS client_token",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(token.client_token.as_deref(), Some("client"));
+        let invalid = sqlx::query("SELECT X'FF' AS invalid_value")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(text(&invalid, "invalid_value").is_err());
     }
 }

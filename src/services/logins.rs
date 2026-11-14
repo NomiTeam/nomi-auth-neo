@@ -138,10 +138,10 @@ impl Logins {
         legacy: bool,
     ) -> Result<Pending> {
         let pending = if legacy {
-            sqlx::query_as::<_, RegistrationRecord>("SELECT id,poll_hash,name,status,expires_at,account_id,session_issued,CAST(error AS CHAR) AS error FROM registrations WHERE id=?")
+            sqlx::query_as::<_, RegistrationRecord>("SELECT id,poll_hash,name,status,expires_at,account_id,session_issued,error FROM registrations WHERE id=?")
                 .bind(id).fetch_optional(connection).await?.map(Pending::Registration)
         } else {
-            sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,CAST(error AS CHAR) AS error FROM login_requests WHERE id=?")
+            sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE id=?")
                 .bind(id).fetch_optional(connection).await?.map(Pending::Login)
         };
         let pending = pending.filter(|record| same(record.poll_hash(), &digest(poll)));
@@ -193,7 +193,7 @@ impl Logins {
             transaction.commit().await?;
             return Ok(Reply::ok(result));
         }
-        let record = sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,CAST(error AS CHAR) AS error FROM login_requests WHERE code_hash=?")
+        let record = sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE code_hash=?")
             .bind(code_hash(&event.code)).fetch_optional(&mut *connection).await?
             .filter(|record| record.expires_at>now())
             .ok_or_else(|| Error::problem("INVALID_CODE", "登录验证码无效或过期", 400))?;
@@ -277,7 +277,7 @@ impl Logins {
             transaction.commit().await?;
             return Ok(Reply::ok(result));
         }
-        let record = sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,CAST(error AS CHAR) AS error FROM login_requests WHERE app_id=? AND group_id=? AND member_id=? AND status='AWAITING_NAME' ORDER BY expires_at DESC LIMIT 1")
+        let record = sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE app_id=? AND group_id=? AND member_id=? AND status='AWAITING_NAME' ORDER BY expires_at DESC LIMIT 1")
             .bind(&event.bot_app_id).bind(&event.group_openid).bind(&event.member_openid).fetch_optional(&mut *connection).await?
             .ok_or_else(|| Error::problem("NO_PENDING_REGISTRATION", "没有待注册申请，请先发送启动器的登录码", 409))?;
         let result =
@@ -379,7 +379,7 @@ impl Logins {
         connection: &mut AnyConnection,
         event: &Redemption,
     ) -> Result<RegistrationRecord> {
-        let record = sqlx::query_as::<_, RegistrationRecord>("SELECT id,poll_hash,name,status,expires_at,account_id,session_issued,CAST(error AS CHAR) AS error FROM registrations WHERE code_hash=?")
+        let record = sqlx::query_as::<_, RegistrationRecord>("SELECT id,poll_hash,name,status,expires_at,account_id,session_issued,error FROM registrations WHERE code_hash=?")
             .bind(code_hash(&event.code)).fetch_optional(&mut *connection).await?
             .ok_or_else(|| Error::problem("INVALID_CODE", "验证码无效", 400))?;
         if record.status != "PENDING" {
