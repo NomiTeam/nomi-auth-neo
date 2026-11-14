@@ -22,6 +22,39 @@ use tower::ServiceExt;
 
 const SEEDED_PROFILE: &str = "12345678901234567890123456789012";
 
+#[tokio::test]
+async fn rate_limits_ignore_forwarded_addresses_from_untrusted_peers() {
+    let fixture = Fixture::new().await;
+    for sequence in 0..21 {
+        let mut attempt = json_request("POST", "/api/v1/logins", json!({}));
+        attempt.extensions_mut().insert(axum::extract::ConnectInfo(
+            "192.0.2.1:1234".parse::<std::net::SocketAddr>().unwrap(),
+        ));
+        attempt.headers_mut().insert(
+            "x-forwarded-for",
+            HeaderValue::from_str(&format!("198.51.100.{sequence}")).unwrap(),
+        );
+        let (status, _) = fixture.json(attempt).await;
+        assert_eq!(
+            status,
+            if sequence < 20 {
+                StatusCode::CREATED
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            }
+        );
+    }
+    let mut proxied = json_request("POST", "/api/v1/logins", json!({}));
+    proxied.extensions_mut().insert(axum::extract::ConnectInfo(
+        "127.0.0.1:1234".parse::<std::net::SocketAddr>().unwrap(),
+    ));
+    proxied
+        .headers_mut()
+        .insert("x-forwarded-for", HeaderValue::from_static("198.51.100.1"));
+    assert_eq!(fixture.json(proxied).await.0, StatusCode::CREATED);
+    fixture.close().await;
+}
+
 struct Fixture {
     directory: tempfile::TempDir,
     app: Arc<App>,

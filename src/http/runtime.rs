@@ -78,7 +78,7 @@ pub fn source_address(request: &axum::extract::Request) -> String {
     else {
         return "unknown".into();
     };
-    // The supplied Nginx template replaces X-Forwarded-For; trust it only on loopback.
+    // A local reverse proxy must replace X-Forwarded-For with the client address.
     if peer.ip().is_loopback()
         && let Some(address) = request
             .headers()
