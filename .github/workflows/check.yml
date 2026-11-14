@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: NomiTeam/nomi-auth
-          ref: 8110ee4
+          ref: 8110ee46c0ebc49013790e7cb30204f0df1acb7e
           path: .reference/nomi-auth
       - uses: dtolnay/rust-toolchain@stable
         with:
