@@ -1,6 +1,5 @@
 # Nomi Auth Neo API
 
-本文随源码维护。服务不开放 `/docs`、`/redoc` 或 `/openapi.json`，也不提供 HTML 页面。
 请求和响应默认使用 JSON，皮肤上传使用 multipart/form-data。以下路径相对于认证服务地址。
 
 ## 通用约定
@@ -105,7 +104,6 @@
 | 方法 | 相对路径 | 输入 | 结果 |
 | --- | --- | --- | --- |
 | GET | `/`（也支持不带末尾斜杠） | 无 | 元数据、皮肤域名和材质签名公钥 |
-| POST | `/authserver/authenticate`、`/authserver/signout` | 任意 | 403；密码认证已禁用 |
 | POST | `/authserver/refresh` | `accessToken`；可选 `clientToken`、`selectedProfile` 对象、`requestUser` | 单次轮换游戏令牌，返回新 `accessToken`、`clientToken`、`selectedProfile` |
 | POST | `/authserver/validate` | `accessToken`；可选 `clientToken` | 204，失效为 403 |
 | POST | `/authserver/invalidate` | `accessToken`；可选 `clientToken` | 204 |
@@ -120,5 +118,5 @@
 ## 健康检查
 
 `GET /health` 无需鉴权，执行数据库 `SELECT 1`，成功返回 `200 {"status":"ok"}`。
-数据库连接失败返回 503。它仅检查应用与数据库连接，不检查机器人在线、QQ API、游戏服或反代证书，也不代表数据库写入和皮肤目录可用。入口仍受普通请求限流，建议每 30–60 秒检查一次。
+数据库连接失败返回 503。建议每 30–60 秒检查一次，受普通请求限流。
 

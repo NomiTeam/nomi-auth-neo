@@ -4,7 +4,7 @@
 
 ## 环境
 
-安装 Rust stable、rustfmt、Clippy 和 C 编译器。辅助检查使用 Python 3.13 和 uv；运行服务不需要这些开发工具。
+安装 Rust stable、rustfmt、Clippy 和 C 编译器。辅助检查使用 Python 3.13 和 uv。
 
 ```shell
 $ cargo build
@@ -55,7 +55,7 @@ Linux 安装 Nginx 后，可检查真实证书和机器人客户端：
 $ uv run --with httpx --with cryptography --with pydantic python scripts/test_mtls.py --neo-binary target/release/nomi-auth-neo --plugin-reference /path/to/nomi-auth-plugin
 ```
 
-脚本使用临时证书、数据和本地端口，不读取或重载系统 Nginx 配置。
+脚本在随机本地端口启动独立 Nginx，退出时清理临时进程、证书和数据。
 
 ## 发布
 
@@ -71,7 +71,7 @@ $ git push origin v0.1.0
 
 发布名与 tag 相同，附件为 Linux 的 tar.gz 和 Windows 的 zip。包内程序名不带版本号，包含配置示例和对应平台的许可证。两包上传完成后才公开 release，已公开版本不会自动覆盖。
 
-PR 和手动运行只产生测试包，不创建 tag 或 release。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
+PR 和手动运行生成测试包，tag 推送执行正式发布。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
 
 ---
 
