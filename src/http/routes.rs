@@ -1,30 +1,26 @@
 /// Return the exact public method set without exposing generated documentation routes.
 pub fn allowed_methods(path: &str) -> Option<&'static str> {
     match path {
-        "/health" | "/api/v1/names/availability" | "/api/v1/game/profile" | "/api/v1/me" => {
+        "/health" | "/api/v1/game/profile" => {
             return Some("GET");
         }
-        "/api/v1/logins" | "/api/v1/registrations" => return Some("POST"),
+        "/api/v1/logins" => return Some("POST"),
         "/api/v1/sessions/refresh" => return Some("POST, DELETE"),
         "/api/v1/sessions/current" => return Some("DELETE"),
-        "/api/v1/me/profile/name" => return Some("PATCH"),
         "/api/v1/me/profile/skin" => return Some("PUT, DELETE"),
         "/internal/v1/logins/verify"
         | "/internal/v1/logins/register"
-        | "/internal/v1/registrations/redeem"
         | "/internal/v1/profiles/rename" => return Some("POST"),
         "/api/yggdrasil" | "/api/yggdrasil/" => return Some("GET"),
         _ => (),
     }
-    for prefix in ["/api/v1/logins/", "/api/v1/registrations/"] {
-        if let Some(tail) = path.strip_prefix(prefix) {
-            let segments: Vec<_> = tail.split('/').collect();
-            return match segments.as_slice() {
-                [identifier] if !identifier.is_empty() => Some("GET, DELETE"),
-                [identifier, "session"] if !identifier.is_empty() => Some("POST"),
-                _ => None,
-            };
-        }
+    if let Some(tail) = path.strip_prefix("/api/v1/logins/") {
+        let segments: Vec<_> = tail.split('/').collect();
+        return match segments.as_slice() {
+            [identifier] if !identifier.is_empty() => Some("GET, DELETE"),
+            [identifier, "session"] if !identifier.is_empty() => Some("POST"),
+            _ => None,
+        };
     }
     if let Some(tail) = path.strip_prefix("/api/v1/game/profiles/")
         && let Some(identifier) = tail.strip_suffix("/name")
@@ -68,8 +64,7 @@ pub fn uses_json(method: &str, path: &str) -> bool {
     if method != "POST" {
         return false;
     }
-    if path == "/api/v1/logins" || path == "/api/v1/registrations" || path.starts_with("/internal/")
-    {
+    if path == "/api/v1/logins" || path.starts_with("/internal/") {
         return true;
     }
     matches!(

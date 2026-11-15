@@ -5,10 +5,7 @@ use sqlx::AnyConnection;
 use uuid::Uuid;
 
 use super::accounts::Accounts;
-use super::models::{
-    EmptyRequest, LoginRecord, MemberOperation, NameRequest, Redemption, RegistrationRecord,
-    SessionClaim,
-};
+use super::models::{EmptyRequest, LoginRecord, MemberOperation, Redemption};
 use super::sessions::Sessions;
 use crate::core::security::{code, code_hash, digest, now, same, secret, valid_name};
 use crate::core::{Error, Reply, Request, Result, Settings};
@@ -37,39 +34,16 @@ impl Logins {
         }
     }
 
-    pub async fn start(&self, request: &Request, legacy: bool) -> Result<Reply> {
-        let name = if legacy {
-            let payload: NameRequest = request.parse()?;
-            if !valid_name(&payload.name) {
-                return Err(Error::invalid());
-            }
-            let mut connection = self.database.pool().acquire().await?;
-            if self
-                .accounts
-                .name_taken(&mut connection, &payload.name)
-                .await?
-            {
-                return Err(Error::problem("NAME_TAKEN", "用户名已被使用", 409));
-            }
-            Some(payload.name)
-        } else {
-            let _: EmptyRequest = request.parse()?;
-            None
-        };
+    pub async fn start(&self, request: &Request) -> Result<Reply> {
+        let _: EmptyRequest = request.parse()?;
         let id = Uuid::new_v4().simple().to_string();
         let verification = code();
         let poll = secret();
         let expires_at = now() + self.settings.registration_ttl;
         let mut transaction = self.database.write().await?;
-        if let Some(name) = name {
-            sqlx::query("INSERT INTO registrations(id,code_hash,poll_hash,name,expires_at) VALUES(?,?,?,?,?)")
-                .bind(&id).bind(code_hash(&verification)).bind(digest(&poll)).bind(name).bind(expires_at)
-                .execute(transaction.connection()).await?;
-        } else {
-            sqlx::query("INSERT INTO login_requests(id,code_hash,poll_hash,account_id,expires_at) VALUES(?,?,?,?,?)")
-                .bind(&id).bind(code_hash(&verification)).bind(digest(&poll)).bind(Option::<String>::None).bind(expires_at)
-                .execute(transaction.connection()).await?;
-        }
+        sqlx::query("INSERT INTO login_requests(id,code_hash,poll_hash,account_id,expires_at) VALUES(?,?,?,?,?)")
+            .bind(&id).bind(code_hash(&verification)).bind(digest(&poll)).bind(Option::<String>::None).bind(expires_at)
+            .execute(transaction.connection()).await?;
         transaction.commit().await?;
         Ok(Reply::json(
             201,
@@ -78,52 +52,46 @@ impl Logins {
         ))
     }
 
-    pub async fn status(&self, request: &Request, id: &str, legacy: bool) -> Result<Reply> {
+    pub async fn status(&self, request: &Request, id: &str) -> Result<Reply> {
         let mut transaction = self.database.write().await?;
         let record = self
-            .find_request(transaction.connection(), id, request.bearer()?, legacy)
+            .find_request(transaction.connection(), id, request.bearer()?)
             .await?;
-        if record.status() == "FAILED" {
-            self.delete(transaction.connection(), id, legacy).await?;
+        if record.status.as_str() == "FAILED" {
+            self.delete(transaction.connection(), id).await?;
         }
-        let expired_status = if legacy {
-            record.status() == "PENDING"
-        } else {
-            matches!(record.status(), "PENDING" | "AWAITING_NAME" | "VERIFIED")
-        };
-        let status = if expired_status && record.expires_at() <= now() {
+        let expired_status = matches!(
+            record.status.as_str(),
+            "PENDING" | "AWAITING_NAME" | "VERIFIED"
+        );
+        let status = if expired_status && record.expires_at <= now() {
             "EXPIRED"
         } else {
-            record.status()
+            record.status.as_str()
         };
         let result =
-            json!({"status":status,"expires_at":record.expires_at(),"error":record.error()});
+            json!({"status":status,"expires_at":record.expires_at,"error":record.error.as_deref()});
         transaction.commit().await?;
         Ok(Reply::ok(result))
     }
 
-    pub async fn cancel(&self, request: &Request, id: &str, legacy: bool) -> Result<Reply> {
+    pub async fn cancel(&self, request: &Request, id: &str) -> Result<Reply> {
         let mut transaction = self.database.write().await?;
         let record = self
-            .find_request(transaction.connection(), id, request.bearer()?, legacy)
+            .find_request(transaction.connection(), id, request.bearer()?)
             .await?;
-        let cancellable = record.status() == "PENDING"
-            || (!legacy && matches!(record.status(), "AWAITING_NAME" | "VERIFIED"));
+        let cancellable = record.status.as_str() == "PENDING"
+            || matches!(record.status.as_str(), "AWAITING_NAME" | "VERIFIED");
         if !cancellable {
             return Err(Error::problem("ALREADY_FINISHED", "申请已结束", 409));
         }
-        self.delete(transaction.connection(), id, legacy).await?;
+        self.delete(transaction.connection(), id).await?;
         transaction.commit().await?;
         Ok(Reply::ok(json!({"status":"CANCELLED"})))
     }
 
-    async fn delete(&self, connection: &mut AnyConnection, id: &str, legacy: bool) -> Result<()> {
-        let table = if legacy {
-            "registrations"
-        } else {
-            "login_requests"
-        };
-        sqlx::query(&format!("DELETE FROM {table} WHERE id=?"))
+    async fn delete(&self, connection: &mut AnyConnection, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM login_requests WHERE id=?")
             .bind(id)
             .execute(connection)
             .await?;
@@ -135,49 +103,33 @@ impl Logins {
         connection: &mut AnyConnection,
         id: &str,
         poll: &str,
-        legacy: bool,
-    ) -> Result<Pending> {
-        let pending = if legacy {
-            sqlx::query_as::<_, RegistrationRecord>("SELECT id,poll_hash,name,status,expires_at,account_id,session_issued,error FROM registrations WHERE id=?")
-                .bind(id).fetch_optional(connection).await?.map(Pending::Registration)
-        } else {
-            sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE id=?")
-                .bind(id).fetch_optional(connection).await?.map(Pending::Login)
-        };
-        let pending = pending.filter(|record| same(record.poll_hash(), &digest(poll)));
+    ) -> Result<LoginRecord> {
+        let pending = sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE id=?")
+            .bind(id).fetch_optional(connection).await?
+            .filter(|record| same(&record.poll_hash, &digest(poll)));
         pending.ok_or_else(|| Error::problem("NOT_FOUND", "申请不存在或凭证无效", 404))
     }
 
-    pub async fn exchange(&self, request: &Request, id: &str, legacy: bool) -> Result<Reply> {
+    pub async fn exchange(&self, request: &Request, id: &str) -> Result<Reply> {
         let poll = request.bearer()?;
-        let retry_id = if legacy {
-            None
-        } else {
-            request.request_id.as_deref()
-        };
+        let retry_id = request.request_id.as_deref();
         self.sessions
             .validate_retry(retry_id, "无效的登录请求标识")?;
         let mut transaction = self.database.write().await?;
-        if !legacy
-            && let Some(result) = self
-                .sessions
-                .login_retry(transaction.connection(), id, poll, retry_id)
-                .await?
+        if let Some(result) = self
+            .sessions
+            .login_retry(transaction.connection(), id, poll, retry_id)
+            .await?
         {
             transaction.commit().await?;
             return Ok(Reply::ok(result));
         }
         let record = self
-            .find_request(transaction.connection(), id, poll, legacy)
+            .find_request(transaction.connection(), id, poll)
             .await?;
         let result = self
             .sessions
-            .issue(
-                transaction.connection(),
-                &record.claim(),
-                retry_id,
-                Some(poll),
-            )
+            .issue(transaction.connection(), &record, retry_id, Some(poll))
             .await?;
         transaction.commit().await?;
         Ok(Reply::ok(result))
@@ -329,130 +281,5 @@ impl Logins {
             return Ok(Some("NAME_TAKEN"));
         }
         Ok(None)
-    }
-
-    pub async fn redeem(&self, request: &Request) -> Result<Reply> {
-        let event: Redemption = request.parse()?;
-        event.validate()?;
-        self.accounts.check_bot(request.bearer()?, &event)?;
-        let mut transaction = self.database.write().await?;
-        let connection = transaction.connection();
-        if let Some(result) = self
-            .accounts
-            .receipt(connection, &event, "register")
-            .await?
-        {
-            transaction.commit().await?;
-            return Ok(Reply::ok(result));
-        }
-        let record = self.legacy_code(connection, &event).await?;
-        let result = if self.accounts.name_taken(connection, &record.name).await? {
-            sqlx::query("UPDATE registrations SET status='FAILED',error='NAME_TAKEN' WHERE id=?")
-                .bind(&record.id)
-                .execute(&mut *connection)
-                .await?;
-            json!({"status":"FAILED","code":"NAME_TAKEN"})
-        } else {
-            let (account_id, _) = self
-                .accounts
-                .create(connection, &record.name, &event)
-                .await?;
-            sqlx::query("UPDATE registrations SET status='COMPLETED',account_id=? WHERE id=?")
-                .bind(&account_id)
-                .bind(&record.id)
-                .execute(&mut *connection)
-                .await?;
-            self.accounts
-                .audit(connection, "register", Some(&account_id), None)
-                .await?;
-            json!({"status":"COMPLETED"})
-        };
-        self.accounts
-            .save_receipt(connection, &event, "register", &result)
-            .await?;
-        transaction.commit().await?;
-        Ok(Reply::ok(result))
-    }
-
-    async fn legacy_code(
-        &self,
-        connection: &mut AnyConnection,
-        event: &Redemption,
-    ) -> Result<RegistrationRecord> {
-        let record = sqlx::query_as::<_, RegistrationRecord>("SELECT id,poll_hash,name,status,expires_at,account_id,session_issued,error FROM registrations WHERE code_hash=?")
-            .bind(code_hash(&event.code)).fetch_optional(&mut *connection).await?
-            .ok_or_else(|| Error::problem("INVALID_CODE", "验证码无效", 400))?;
-        if record.status != "PENDING" {
-            return Err(Error::problem(
-                "CODE_USED",
-                "申请已结束，验证码不可再使用",
-                409,
-            ));
-        }
-        if record.expires_at <= now() {
-            return Err(Error::problem("REQUEST_EXPIRED", "验证码已过期", 400));
-        }
-        if self.accounts.member(connection, event).await?.is_some() {
-            return Err(Error::problem(
-                "IDENTITY_ALREADY_BOUND",
-                "该群成员已有账号",
-                409,
-            ));
-        }
-        Ok(record)
-    }
-}
-
-enum Pending {
-    Login(LoginRecord),
-    Registration(RegistrationRecord),
-}
-
-impl Pending {
-    fn claim(&self) -> SessionClaim<'_> {
-        match self {
-            Self::Login(record) => SessionClaim {
-                id: &record.id,
-                account_id: record.account_id.as_deref(),
-                status: &record.status,
-                expires_at: record.expires_at,
-                session_issued: record.session_issued,
-                table: "login_requests",
-                required_status: "VERIFIED",
-            },
-            Self::Registration(record) => SessionClaim {
-                id: &record.id,
-                account_id: record.account_id.as_deref(),
-                status: &record.status,
-                expires_at: record.expires_at,
-                session_issued: record.session_issued,
-                table: "registrations",
-                required_status: "COMPLETED",
-            },
-        }
-    }
-    fn status(&self) -> &str {
-        match self {
-            Self::Login(record) => &record.status,
-            Self::Registration(record) => &record.status,
-        }
-    }
-    fn poll_hash(&self) -> &str {
-        match self {
-            Self::Login(record) => &record.poll_hash,
-            Self::Registration(record) => &record.poll_hash,
-        }
-    }
-    fn expires_at(&self) -> i64 {
-        match self {
-            Self::Login(record) => record.expires_at,
-            Self::Registration(record) => record.expires_at,
-        }
-    }
-    fn error(&self) -> Option<&str> {
-        match self {
-            Self::Login(record) => record.error.as_deref(),
-            Self::Registration(record) => record.error.as_deref(),
-        }
     }
 }

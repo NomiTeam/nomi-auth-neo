@@ -395,7 +395,7 @@ async fn json_body_defaults_and_media_types_match_existing_clients() {
     let response = fixture
         .send(json_request("POST", "/api/v1/registrations", Value::Null))
         .await;
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
     let (status, error) = fixture
         .json(request(
             "POST",
@@ -582,5 +582,39 @@ async fn group_login_skin_and_game_join_work_through_real_http_extractors() {
         management_token,
     );
     assert_eq!(fixture.send(clear).await.status(), StatusCode::NO_CONTENT);
+    let mismatched = authorized(
+        json_request(
+            "PATCH",
+            "/api/v1/game/profiles/00000000000000000000000000000000/name",
+            json!({"name":"Changed"}),
+        ),
+        game_token,
+    );
+    assert_eq!(
+        fixture.send(mismatched).await.status(),
+        StatusCode::FORBIDDEN
+    );
+    let rename = authorized(
+        json_request(
+            "PATCH",
+            &format!("/api/v1/game/profiles/{profile_id}/name"),
+            json!({"name":"Changed"}),
+        ),
+        game_token,
+    );
+    let (status, renamed) = fixture.json(rename).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(renamed["game"]["selectedProfile"]["id"], profile_id);
+    assert_eq!(renamed["game"]["selectedProfile"]["name"], "Changed");
+    assert_eq!(renamed["game"]["accessToken"], game_token);
+    for path in ["/api/v1/me", "/api/v1/names/availability"] {
+        assert_eq!(
+            fixture
+                .send(request("GET", path, Body::empty()))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
     fixture.close().await;
 }

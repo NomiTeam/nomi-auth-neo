@@ -47,27 +47,6 @@ pub(crate) struct LoginRecord {
     pub error: Option<String>,
 }
 
-pub(crate) struct RegistrationRecord {
-    pub id: String,
-    pub poll_hash: String,
-    pub name: String,
-    pub status: String,
-    pub expires_at: i64,
-    pub account_id: Option<String>,
-    pub session_issued: i64,
-    pub error: Option<String>,
-}
-
-pub(crate) struct SessionClaim<'a> {
-    pub id: &'a str,
-    pub account_id: Option<&'a str>,
-    pub status: &'a str,
-    pub expires_at: i64,
-    pub session_issued: i64,
-    pub table: &'static str,
-    pub required_status: &'static str,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EmptyRequest {}
@@ -78,7 +57,7 @@ pub(crate) struct NameRequest {
     pub name: String,
 }
 
-/// Field order deliberately matches Pydantic's model_dump_json, including Unicode.
+/// Stable field order preserves persisted event hashes across retries.
 #[derive(Deserialize, Serialize)]
 pub(crate) struct Redemption {
     pub code: String,
@@ -175,7 +154,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn event_serialization_preserves_python_field_order() {
+    fn event_serialization_preserves_hash_field_order() {
         let event = Redemption {
             code: "ABCD-2345-EFGH".into(),
             bot_app_id: "app".into(),
@@ -255,20 +234,6 @@ text_row!(
     ],
     error
 );
-text_row!(
-    RegistrationRecord,
-    [
-        id,
-        poll_hash,
-        name,
-        status,
-        expires_at,
-        account_id,
-        session_issued
-    ],
-    error
-);
-
 #[cfg(test)]
 mod database_text_tests {
     use super::{Token, optional_text, text};

@@ -13,7 +13,7 @@
 - 默认同一来源 IP 每分钟普通请求 300 次、敏感 POST 请求 20 次。部署反代时应正确设置可信代理；不要信任任意客户端传入的转发头。
 - 游戏令牌默认 24 小时、管理令牌 1 小时、刷新令牌 30 天；实际以配置及响应的到期时间为准。
 
-启用 `NOMI_INTERNAL_MTLS_REQUIRED` 后，`/internal/` 还要求本机反代验证客户端证书，否则返回 403 `MTLS_REQUIRED`；原有机器人凭证仍需提供。公开路径必须清除 `X-Nomi-Client-Verify`，内部路径仅转发 Nginx 的验证结果，详见 [mTLS 配置](deploy/MTLS.md)。
+启用 `NOMI_INTERNAL_MTLS_REQUIRED` 后，`/internal/` 还要求本机反代验证客户端证书，否则返回 403 `MTLS_REQUIRED`；原有机器人凭证仍需提供。公开路径必须清除 `X-Nomi-Client-Verify`，内部路径仅转发 Nginx 的验证结果，详见 [README](README.md#nginx)。
 
 ## 推荐登录流程
 
@@ -79,7 +79,6 @@
 | POST | `/internal/v1/logins/verify` | 验证码和身份 | `AWAITING_NAME` 或 `VERIFIED`；后者包含 `name`、`uuid` |
 | POST | `/internal/v1/logins/register` | 身份和 `name` | `REGISTERED`、`name`、`uuid`；业务失败返回 `FAILED`、`code` |
 | POST | `/internal/v1/profiles/rename` | 身份和 `name` | `RENAMED`、`name`、`uuid`；业务失败返回 `FAILED`、`code` |
-| POST | `/internal/v1/registrations/redeem` | 验证码和身份 | 兼容独立注册申请；`COMPLETED` 或 `FAILED` |
 
 名称冲突、无效名称等注册失败会结束本次申请。常见错误包括 `NAME_TAKEN`、`INVALID_NAME`、`NO_PENDING_REGISTRATION`、`REQUEST_IN_PROGRESS`、`CODE_USED`、`WRONG_GROUP`、`ACCOUNT_UNAVAILABLE`；HTTP 200 的业务结果也应检查 `status`。
 
@@ -91,8 +90,6 @@
 | DELETE | `/api/v1/sessions/refresh` | refresh_token | 204；撤销同一设备的游戏、刷新令牌 |
 | GET | `/api/v1/game/profile` | game accessToken | `id`、当前 `name` |
 | PATCH | `/api/v1/game/profiles/{profile_id}/name` | game accessToken；`{"name":"NewName"}` | 更新后的 `login_name`、`game`，UUID 不变 |
-| GET | `/api/v1/me` | management_token | `login_name` 和 `profile`（UUID、账号 ID、名称、皮肤等） |
-| PATCH | `/api/v1/me/profile/name` | management_token；`{"name":"NewName"}` | `uuid`、`name` |
 | PUT | `/api/v1/me/profile/skin` | management_token；multipart `image`、`model` | `hash`、`url` |
 | DELETE | `/api/v1/me/profile/skin` | management_token | 204，恢复默认皮肤 |
 | DELETE | `/api/v1/sessions/current` | management_token | 204，仅撤销该管理令牌 |
@@ -119,18 +116,6 @@
 | PUT | `/api/user/profile/{profile_id}/skin` | Bearer game accessToken；multipart `file`、`model` | 204，仅限本人角色 |
 
 原生皮肤接口的 `model` 可为 `slim`、`default`，空值代表默认模型。Yggdrasil 错误使用 `error`、`errorMessage`，参数错误通常为 400。
-
-## 兼容独立注册接口
-
-新启动器推荐使用统一登录流程。以下接口为旧调用保留：
-
-| 方法 | 路径 | 凭证与输入 | 结果 |
-| --- | --- | --- | --- |
-| GET | `/api/v1/names/availability` | 查询参数 `name` | `{"available":true}`；不预占名称 |
-| POST | `/api/v1/registrations` | `{"name":"Alice"}` | 201，结构同登录申请 |
-| GET | `/api/v1/registrations/{request_id}` | poll_token | `status`、`expires_at`、`error`，验证成功为 `COMPLETED` |
-| DELETE | `/api/v1/registrations/{request_id}` | poll_token | `CANCELLED` |
-| POST | `/api/v1/registrations/{request_id}/session` | poll_token | 一次性领取会话 |
 
 ## 健康检查
 

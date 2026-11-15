@@ -438,7 +438,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn uuid_text_forms_match_python() {
+    fn uuid_text_forms_are_normalized() {
         let expected = "abcdef1234567890abcdef1234567890";
         for value in [
             expected.to_uppercase(),

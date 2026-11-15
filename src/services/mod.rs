@@ -11,7 +11,6 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use sqlx::AnyConnection;
 
-use crate::core::security::valid_name;
 use crate::core::{Error, Reply, Request, Result, Settings};
 use crate::storage::Database;
 use accounts::Accounts;
@@ -59,35 +58,26 @@ impl Auth {
                     .await?;
                 Ok(Reply::ok(json!({"status":"ok"})))
             }
-            ("GET", "/api/v1/names/availability") => self.availability(request).await,
-            ("POST", "/api/v1/logins") => self.logins.start(request, false).await,
-            ("POST", "/api/v1/registrations") => self.logins.start(request, true).await,
+            ("POST", "/api/v1/logins") => self.logins.start(request).await,
             ("POST", "/internal/v1/logins/verify") => self.logins.verify(request).await,
             ("POST", "/internal/v1/logins/register") => self.logins.register(request).await,
-            ("POST", "/internal/v1/registrations/redeem") => self.logins.redeem(request).await,
             ("POST", "/internal/v1/profiles/rename") => self.profiles.rename_member(request).await,
             ("POST", "/api/v1/sessions/refresh") => self.sessions.refresh(request).await,
             ("DELETE", "/api/v1/sessions/refresh") => self.sessions.revoke(request).await,
             ("DELETE", "/api/v1/sessions/current") => self.sessions.logout(request).await,
-            ("GET", "/api/v1/game/profile") => self.sessions.current_profile(request, false).await,
-            ("GET", "/api/v1/me") => self.sessions.current_profile(request, true).await,
-            ("PATCH", "/api/v1/me/profile/name") => self.profiles.rename(request, None).await,
+            ("GET", "/api/v1/game/profile") => self.sessions.current_profile(request).await,
             _ => self.handle_path(request).await,
         }
     }
 
     async fn handle_path(&self, request: &Request) -> Result<Reply> {
         let parts: Vec<_> = request.path.trim_matches('/').split('/').collect();
-        if parts.len() >= 4
-            && parts[..2] == ["api", "v1"]
-            && matches!(parts[2], "logins" | "registrations")
-        {
-            let legacy = parts[2] == "registrations";
+        if parts.len() >= 4 && parts[..2] == ["api", "v1"] && parts[2] == "logins" {
             match (request.method.as_str(), parts.len()) {
-                ("GET", 4) => return self.logins.status(request, parts[3], legacy).await,
-                ("DELETE", 4) => return self.logins.cancel(request, parts[3], legacy).await,
+                ("GET", 4) => return self.logins.status(request, parts[3]).await,
+                ("DELETE", 4) => return self.logins.cancel(request, parts[3]).await,
                 ("POST", 5) if parts[4] == "session" => {
-                    return self.logins.exchange(request, parts[3], legacy).await;
+                    return self.logins.exchange(request, parts[3]).await;
                 }
                 _ => {}
             }
@@ -97,23 +87,9 @@ impl Auth {
             && parts[..4] == ["api", "v1", "game", "profiles"]
             && parts[5] == "name"
         {
-            return self.profiles.rename(request, Some(parts[4])).await;
+            return self.profiles.rename(request, parts[4]).await;
         }
         Err(Error::problem("NOT_FOUND", "Not Found", 404))
-    }
-
-    async fn availability(&self, request: &Request) -> Result<Reply> {
-        let name = request.query.get("name").ok_or_else(Error::invalid)?;
-        if !valid_name(name) {
-            return Err(Error::problem(
-                "INVALID_NAME",
-                "用户名须为 3 至 16 位字母、数字或下划线",
-                400,
-            ));
-        }
-        let mut connection = self.database.pool().acquire().await?;
-        let available = !self.accounts.name_taken(&mut connection, name).await?;
-        Ok(Reply::ok(json!({"available":available})))
     }
 
     pub async fn account_for_token(

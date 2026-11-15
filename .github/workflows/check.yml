@@ -34,15 +34,9 @@ jobs:
       NOMI_TEST_MYSQL_HOST: 127.0.0.1
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: NomiTeam/nomi-auth
-          ref: 8110ee46c0ebc49013790e7cb30204f0df1acb7e
-          path: .reference/nomi-auth
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: astral-sh/setup-uv@v6
       - name: Configure isolated database port
         run: echo "NOMI_TEST_MYSQL_PORT=${{ job.services.mariadb.ports[3306] }}" >> "$GITHUB_ENV"
       - run: cargo fmt --all --check
@@ -50,18 +44,6 @@ jobs:
       - run: cargo test --locked --all-targets
       - run: cargo test --locked --test storage -- --ignored --test-threads=1
       - run: cargo build --locked
-      - name: Check Python and Rust data compatibility
-        run: >-
-          uv run --project .reference/nomi-auth python tests/interop_storage.py
-          --neo-binary target/debug/nomi-auth-neo
-          --python-reference .reference/nomi-auth
-      - name: Run previous HTTP contracts on both databases
-        env:
-          PYTHONPATH: .reference/nomi-auth:tests/compatibility
-        run: >-
-          uv run --project .reference/nomi-auth pytest .reference/nomi-auth/tests/test_service.py
-          -p neo_bridge --neo-binary target/debug/nomi-auth-neo
-          --ref .reference/nomi-auth -q
 
   linux-static:
     runs-on: ubuntu-latest
