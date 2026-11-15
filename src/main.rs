@@ -49,7 +49,7 @@ enum Command {
         /// Account ID, matched without case sensitivity.
         login_name: String,
     },
-    /// Permanently delete an account, its QQ binding and authentication sessions.
+    /// Permanently delete a disabled account, its QQ binding and authentication sessions.
     Delete {
         /// Account ID, matched without case sensitivity.
         login_name: String,

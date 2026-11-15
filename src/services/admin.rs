@@ -48,11 +48,18 @@ impl Admin {
         transaction.commit().await
     }
 
-    /// Delete any account, including QQ-bound accounts, without touching other players.
+    /// Delete a disabled account without touching other players.
     pub async fn delete(&self, name: &str) -> Result<String> {
         let mut transaction = self.database.write().await?;
         let connection = transaction.connection();
         let account = Self::account(connection, name).await?;
+        if account.status != "disabled" {
+            return Err(Error::problem(
+                "ACCOUNT_ENABLED",
+                "Account is enabled. Disable it before deleting.",
+                409,
+            ));
+        }
         let profile = sqlx::query("SELECT uuid,skin_hash FROM profiles WHERE account_id=?")
             .bind(&account.id)
             .fetch_optional(&mut *connection)

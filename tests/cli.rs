@@ -234,6 +234,24 @@ fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
         .status
         .success()
     );
+    let refused = run(directory.path(), &["delete", "AdminTest"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("Disable it before deleting"));
+    let request = format!(
+        "GET /api/v1/game/profile HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
+        session["game"]["accessToken"].as_str().unwrap()
+    );
+    assert!(
+        service
+            .request(&request)
+            .unwrap()
+            .starts_with("HTTP/1.1 200")
+    );
+    assert!(
+        run(directory.path(), &["disable", "AdminTest"])
+            .status
+            .success()
+    );
     let deleted = run(directory.path(), &["delete", "admintest"]);
     assert!(
         deleted.status.success(),
