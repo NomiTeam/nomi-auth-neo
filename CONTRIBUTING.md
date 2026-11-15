@@ -34,8 +34,6 @@ $ uvx ruff check scripts tests/test_release.py
 $ uvx ruff format --check scripts tests/test_release.py
 ```
 
-代码和注释使用英文，文档使用中文。每次提交只处理一个功能，用简短英文说明改动。
-
 ## 测试
 
 ```shell
