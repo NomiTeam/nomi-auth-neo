@@ -130,18 +130,7 @@ impl SkinService {
     }
 
     async fn retire(&self, texture_hash: Option<&str>) -> Result<()> {
-        let Some(texture_hash) = texture_hash.filter(|value| valid_hash(value)) else {
-            return Ok(());
-        };
-        let path = self.directory.join(texture_hash);
-        tokio::task::spawn_blocking(move || {
-            if path.is_file() {
-                filetime::set_file_mtime(path, filetime::FileTime::now())?;
-            }
-            Ok(())
-        })
-        .await
-        .map_err(|_| Error::internal())?
+        retire_texture(&self.directory, texture_hash).await
     }
 
     pub async fn clear(&self, request: &Request) -> Result<Reply> {
@@ -186,6 +175,22 @@ impl SkinService {
         )
             .into_response())
     }
+}
+
+/// Keep retired files briefly so uploads can safely reuse content-addressed skins.
+pub(crate) async fn retire_texture(directory: &Path, texture_hash: Option<&str>) -> Result<()> {
+    let Some(texture_hash) = texture_hash.filter(|value| valid_hash(value)) else {
+        return Ok(());
+    };
+    let path = directory.join(texture_hash);
+    tokio::task::spawn_blocking(move || {
+        if path.is_file() {
+            filetime::set_file_mtime(path, filetime::FileTime::now())?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| Error::internal())?
 }
 
 fn upload_target(path: &str) -> Result<UploadTarget> {

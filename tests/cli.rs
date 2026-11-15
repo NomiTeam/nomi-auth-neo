@@ -1,11 +1,14 @@
 use std::{fs, process::Command};
 
+fn executable() -> std::path::PathBuf {
+    // Cross-built tests can point at a native executable without copying it.
+    std::env::var_os("NOMI_TEST_BINARY")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_nomi-auth-neo").into())
+}
+
 fn run(directory: &std::path::Path, arguments: &[&str]) -> std::process::Output {
-    let binary = directory.join(format!("nomi-auth-neo{}", std::env::consts::EXE_SUFFIX));
-    if !binary.exists() {
-        fs::copy(env!("CARGO_BIN_EXE_nomi-auth-neo"), &binary).unwrap();
-    }
-    let mut command = Command::new(binary);
+    let mut command = Command::new(executable());
     command.current_dir(directory).args(arguments);
     for (name, _) in std::env::vars_os() {
         if name
@@ -33,14 +36,10 @@ impl Drop for Service {
 
 impl Service {
     fn start(directory: &std::path::Path) -> Self {
-        let binary = directory.join(format!("nomi-auth-neo{}", std::env::consts::EXE_SUFFIX));
-        if !binary.exists() {
-            fs::copy(env!("CARGO_BIN_EXE_nomi-auth-neo"), &binary).unwrap();
-        }
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
-        let mut command = Command::new(binary);
+        let mut command = Command::new(executable());
         command
             .current_dir(directory)
             .args(["serve", "--port", &address.port().to_string()]);
@@ -92,9 +91,39 @@ impl Service {
 }
 
 #[test]
-fn standalone_first_start_generates_configuration_and_exits_before_serving() {
+fn no_arguments_print_help_without_reading_or_creating_configuration() {
     let directory = tempfile::tempdir().unwrap();
     let output = run(directory.path(), &[]);
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("Commands:"));
+    assert!(help.contains("Start the authentication HTTP service"));
+    assert!(!directory.path().join(".env").exists());
+    assert!(!directory.path().join("data").exists());
+
+    fs::write(directory.path().join(".env"), "invalid settings").unwrap();
+    assert!(run(directory.path(), &[]).status.success());
+    assert!(!directory.path().join("data").exists());
+    for command in [
+        "serve",
+        "backup",
+        "restore",
+        "cleanup",
+        "enable",
+        "disable",
+        "delete",
+        "migrate-database",
+        "login",
+    ] {
+        let output = run(directory.path(), &[command, "--help"]);
+        assert!(output.status.success(), "Missing help for {command}");
+    }
+}
+
+#[test]
+fn standalone_first_start_generates_configuration_and_exits_before_serving() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = run(directory.path(), &["serve"]);
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("Edit .env"));
     let configuration = directory.path().join(".env");
@@ -161,7 +190,7 @@ fn informational_and_maintenance_commands_do_not_generate_configuration() {
 #[test]
 fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
     let directory = tempfile::tempdir().unwrap();
-    assert!(run(directory.path(), &[]).status.success());
+    assert!(run(directory.path(), &["serve"]).status.success());
     let configuration = directory.path().join(".env");
     let edited = fs::read_to_string(&configuration)
         .unwrap()
@@ -175,14 +204,14 @@ fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
 
     let output = run(
         directory.path(),
-        &["test-login", login["code"].as_str().unwrap(), "AdminTest"],
+        &["login", login["code"].as_str().unwrap(), "AdminTest"],
     );
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("Test login approved: AdminTest"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Login approved: AdminTest"));
     assert_eq!(fs::read_to_string(configuration).unwrap(), edited);
 
     let request = format!(
@@ -195,14 +224,36 @@ fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
     let session: serde_json::Value =
         serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(session["game"]["selectedProfile"]["name"], "AdminTest");
-    let response = service.request("POST /api/v1/test-login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+    let response = service.request("POST /api/v1/login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
     assert!(response.starts_with("HTTP/1.1 404"));
     assert!(
         !run(
             directory.path(),
-            &["test-login", login["code"].as_str().unwrap(), "AnotherTest"]
+            &["login", login["code"].as_str().unwrap(), "AnotherTest"]
         )
         .status
         .success()
+    );
+    let deleted = run(directory.path(), &["delete", "admintest"]);
+    assert!(
+        deleted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+    assert!(String::from_utf8_lossy(&deleted.stdout).contains("Account AdminTest: deleted"));
+    assert!(
+        !run(directory.path(), &["delete", "AdminTest"])
+            .status
+            .success()
+    );
+    let request = format!(
+        "GET /api/v1/game/profile HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
+        session["game"]["accessToken"].as_str().unwrap()
+    );
+    assert!(
+        service
+            .request(&request)
+            .unwrap()
+            .starts_with("HTTP/1.1 403")
     );
 }

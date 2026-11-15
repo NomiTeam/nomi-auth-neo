@@ -1,11 +1,12 @@
 mod accounts;
+mod admin;
+mod admin_login;
 pub mod game;
 mod logins;
 mod models;
 mod profiles;
 mod sessions;
 pub mod skins;
-mod testing;
 
 use std::sync::Arc;
 
@@ -19,6 +20,7 @@ use logins::Logins;
 use profiles::Profiles;
 use sessions::Sessions;
 
+pub use admin::Admin;
 pub use models::{Account, Profile, TokenOptions};
 
 /// Compose account rules once and share them across launcher and game protocols.
@@ -33,8 +35,8 @@ pub struct Auth {
 
 impl Auth {
     /// Local administration only: this operation has no HTTP route.
-    pub async fn test_login(&self, code: &str, name: &str) -> Result<Profile> {
-        testing::TestAccounts::new(
+    pub async fn login(&self, code: &str, name: &str) -> Result<Profile> {
+        admin_login::AdminLogin::new(
             self.database.clone(),
             self.accounts.clone(),
             self.logins.clone(),

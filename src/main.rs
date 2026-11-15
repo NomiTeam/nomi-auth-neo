@@ -1,8 +1,8 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use nomi_auth_neo::{
-    core::{Error, Settings, security::now},
+    core::{Settings, security::now},
     http::App,
-    services::Auth,
+    services::{Admin, Auth},
     storage::{Database, maintenance},
 };
 use std::{net::SocketAddr, path::PathBuf};
@@ -16,32 +16,54 @@ struct Arguments {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Start the authentication HTTP service.
     Serve {
+        /// Local address to bind.
         #[arg(long, default_value = "127.0.0.1")]
         host: std::net::IpAddr,
+        /// Local TCP port to listen on.
         #[arg(long, default_value_t = 8000)]
         port: u16,
     },
+    /// Export a complete database, signing-key and skin snapshot.
     Backup {
+        /// New archive file to create.
         destination: PathBuf,
     },
+    /// Restore a snapshot into a new data directory.
     Restore {
+        /// Snapshot archive to read.
         archive: PathBuf,
+        /// New directory to create; existing directories are rejected.
         destination: PathBuf,
     },
+    /// Remove expired temporary records and retired skins.
     Cleanup,
+    /// Disable an account and revoke its active sessions.
     Disable {
+        /// Account ID, matched without case sensitivity.
         login_name: String,
     },
+    /// Re-enable a disabled account.
     Enable {
+        /// Account ID, matched without case sensitivity.
         login_name: String,
     },
+    /// Permanently delete an account, its QQ binding and authentication sessions.
+    Delete {
+        /// Account ID, matched without case sensitivity.
+        login_name: String,
+    },
+    /// Import a SQLite snapshot into an empty MySQL/MariaDB database.
     MigrateDatabase {
+        /// Source nomi-auth.sqlite3 file; the source is not changed.
         source: PathBuf,
     },
-    /// Approve a launcher code for a local account without a QQ binding.
-    TestLogin {
+    /// Approve a launcher code for an existing account, or create a new account.
+    Login {
+        /// Unclaimed login code shown by the launcher.
         code: String,
+        /// New or existing account ID.
         name: String,
     },
 }
@@ -54,10 +76,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let arguments = Arguments::parse();
-    let command = arguments.command.unwrap_or(Command::Serve {
-        host: std::net::Ipv4Addr::LOCALHOST.into(),
-        port: 8000,
-    });
+    let Some(command) = arguments.command else {
+        Arguments::command().print_help()?;
+        println!();
+        return Ok(());
+    };
     if let Command::Restore {
         archive,
         destination,
@@ -116,54 +139,27 @@ async fn maintain(settings: Settings, command: Command) -> anyhow::Result<()> {
             maintenance::import_sqlite(&source, &database).await?;
             println!("Migration verified; source unchanged.");
         }
-        Command::TestLogin { code, name } => {
+        Command::Login { code, name } => {
             let auth = Auth::new(std::sync::Arc::new(settings), database.clone());
-            let profile = auth.test_login(&code, &name).await?;
-            println!("Test login approved: {} ({})", profile.name, profile.uuid);
+            let profile = auth.login(&code, &name).await?;
+            println!("Login approved: {} ({})", profile.name, profile.uuid);
         }
-        Command::Disable { login_name } => set_account(&database, &login_name, false).await?,
-        Command::Enable { login_name } => set_account(&database, &login_name, true).await?,
+        Command::Disable { login_name } => {
+            Admin::new(database).set_enabled(&login_name, false).await?;
+            println!("Account {login_name}: disabled");
+        }
+        Command::Enable { login_name } => {
+            Admin::new(database).set_enabled(&login_name, true).await?;
+            println!("Account {login_name}: active");
+        }
+        Command::Delete { login_name } => {
+            let name = Admin::new(database).delete(&login_name).await?;
+            println!("Account {name}: deleted");
+        }
         Command::Serve { .. } | Command::Restore { .. } => {
             unreachable!("Handled before maintenance")
         }
     }
-    Ok(())
-}
-
-async fn set_account(database: &Database, login_name: &str, enabled: bool) -> anyhow::Result<()> {
-    let mut transaction = database.write().await?;
-    let account_id: Option<String> =
-        sqlx::query_scalar("SELECT id FROM accounts WHERE login_normalized=?")
-            .bind(login_name.to_lowercase())
-            .fetch_optional(transaction.connection())
-            .await?;
-    let account_id =
-        account_id.ok_or_else(|| Error::problem("ACCOUNT_NOT_FOUND", "Account not found", 404))?;
-    let status = if enabled { "active" } else { "disabled" };
-    let action = if enabled { "enable" } else { "disable" };
-    sqlx::query("UPDATE accounts SET status=? WHERE id=?")
-        .bind(status)
-        .bind(&account_id)
-        .execute(transaction.connection())
-        .await?;
-    sqlx::query("DELETE FROM tokens WHERE account_id=?")
-        .bind(&account_id)
-        .execute(transaction.connection())
-        .await?;
-    sqlx::query(
-        "DELETE FROM joins WHERE profile_id IN (SELECT uuid FROM profiles WHERE account_id=?)",
-    )
-    .bind(&account_id)
-    .execute(transaction.connection())
-    .await?;
-    sqlx::query("INSERT INTO audit(action,account_id,created_at) VALUES(?,?,?)")
-        .bind(action)
-        .bind(&account_id)
-        .bind(now())
-        .execute(transaction.connection())
-        .await?;
-    transaction.commit().await?;
-    println!("Account {login_name}: {status}");
     Ok(())
 }
 

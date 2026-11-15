@@ -11,38 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mariadb:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    services:
-      mariadb:
-        image: mariadb:11
-        env:
-          MARIADB_ROOT_PASSWORD: test-only-root
-          MARIADB_DATABASE: nomi_auth_test_ci
-          MARIADB_USER: nomi_auth_test_user
-          MARIADB_PASSWORD: test-only-password
-        ports:
-          - 3306/tcp
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=10s --health-timeout=5s --health-retries=10
-    env:
-      NOMI_TEST_MYSQL_DATABASE: nomi_auth_test_ci
-      NOMI_TEST_MYSQL_USER: nomi_auth_test_user
-      NOMI_TEST_MYSQL_PASSWORD: test-only-password
-      NOMI_TEST_MYSQL_HOST: 127.0.0.1
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Configure isolated database port
-        run: echo "NOMI_TEST_MYSQL_PORT=${{ job.services.mariadb.ports['3306'] }}" >> "$GITHUB_ENV"
-      - run: cargo test --locked --test storage -- --ignored --test-threads=1
-      - run: cargo test --locked --test admin -- --ignored --test-threads=1
-
   mysql:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -51,7 +19,7 @@ jobs:
         image: mysql:8.4
         env:
           MYSQL_ROOT_PASSWORD: test-only-root
-          MYSQL_DATABASE: nomi_auth_test_mysql_ci
+          MYSQL_DATABASE: nomi_auth_test_ci
           MYSQL_USER: nomi_auth_test_user
           MYSQL_PASSWORD: test-only-password
         ports:
@@ -60,7 +28,7 @@ jobs:
           --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest-only-root --silent"
           --health-interval=10s --health-timeout=5s --health-retries=10
     env:
-      NOMI_TEST_MYSQL_DATABASE: nomi_auth_test_mysql_ci
+      NOMI_TEST_MYSQL_DATABASE: nomi_auth_test_ci
       NOMI_TEST_MYSQL_USER: nomi_auth_test_user
       NOMI_TEST_MYSQL_PASSWORD: test-only-password
       NOMI_TEST_MYSQL_HOST: 127.0.0.1
@@ -72,6 +40,7 @@ jobs:
         run: echo "NOMI_TEST_MYSQL_PORT=${{ job.services.mysql.ports['3306'] }}" >> "$GITHUB_ENV"
       - run: cargo test --locked --test storage -- --ignored --test-threads=1
       - run: cargo test --locked --test admin -- --ignored --test-threads=1
+      - run: cargo test --locked --test deletion -- --ignored --test-threads=1
 
   linux-static:
     runs-on: ubuntu-latest
