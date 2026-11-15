@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use nomi_auth_neo::{
     core::{Error, Settings, security::now},
     http::App,
+    services::Auth,
     storage::{Database, maintenance},
 };
 use std::{net::SocketAddr, path::PathBuf};
@@ -37,6 +38,11 @@ enum Command {
     },
     MigrateDatabase {
         source: PathBuf,
+    },
+    /// Approve a launcher code for a local account without a QQ binding.
+    TestLogin {
+        code: String,
+        name: String,
     },
 }
 
@@ -109,6 +115,11 @@ async fn maintain(settings: Settings, command: Command) -> anyhow::Result<()> {
         Command::MigrateDatabase { source } => {
             maintenance::import_sqlite(&source, &database).await?;
             println!("Migration verified; source unchanged.");
+        }
+        Command::TestLogin { code, name } => {
+            let auth = Auth::new(std::sync::Arc::new(settings), database.clone());
+            let profile = auth.test_login(&code, &name).await?;
+            println!("Test login approved: {} ({})", profile.name, profile.uuid);
         }
         Command::Disable { login_name } => set_account(&database, &login_name, false).await?,
         Command::Enable { login_name } => set_account(&database, &login_name, true).await?,

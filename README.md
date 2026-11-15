@@ -45,6 +45,18 @@ $ ./nomi-auth-neo migrate-database restored-data/nomi-auth.sqlite3
 
 导入会核对全部记录，不修改源文件，目标非空时拒绝导入。
 
+## 测试账号
+
+在启动器打开登录窗口，复制登录码，然后在服务端的程序目录执行：
+
+```shell
+$ ./nomi-auth-neo test-login AAAA-BBBB-CCCC LocalTest
+```
+
+命令创建不绑定 QQ 的测试账号并批准本次登录；同名未绑定账号会复用，UUID 不变。
+已被领取、过期的登录码，以及已绑定 QQ 或停用的账号均拒绝操作。
+此命令只能在服务端运行，没有对应的 HTTP 接口。测试结束后可用 `disable LocalTest` 停用账号并撤销令牌。
+
 ## 项目结构
 
 ```text
