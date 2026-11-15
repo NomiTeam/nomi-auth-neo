@@ -138,6 +138,7 @@ def package(
         PLATFORMS[platform]: binary,
         ".env.example": directory / ".env.example",
         "README.md": directory / "README.md",
+        "CONTRIBUTING.md": directory / "CONTRIBUTING.md",
         "API.md": directory / "API.md",
         "THIRD_PARTY_NOTICES.md": notices,
     }
