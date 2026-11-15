@@ -92,37 +92,28 @@ def issue_certificate(directory, name, authority=None, purpose=None, expired=Fal
 
 
 def available_ports():
-    with (
-        socket.socket() as backend,
-        socket.socket() as public,
-        socket.socket() as internal,
-    ):
-        for listener in (backend, public, internal):
+    with socket.socket() as backend, socket.socket() as gateway:
+        for listener in (backend, gateway):
             listener.bind(("127.0.0.1", 0))
-        return tuple(
-            listener.getsockname()[1] for listener in (backend, public, internal)
+        return (
+            backend.getsockname()[1],
+            gateway.getsockname()[1],
+            gateway.getsockname()[1],
         )
 
 
 def nginx_configuration(directory, templates, ports):
-    backend, public, internal = ports
-    blocks = []
-    for filename, port in [
-        ("nginx-public.conf", public),
-        ("nginx-internal.conf", internal),
-    ]:
-        block = (templates / filename).read_text(encoding="utf-8")
-        block = block.replace("listen 443 ssl;", f"listen 127.0.0.1:{port} ssl;")
-        block = block.replace("listen 8443 ssl;", f"listen 127.0.0.1:{port} ssl;")
-        block = block.replace("/etc/ssl/nomi/", str(directory) + "/")
-        block = block.replace("127.0.0.1:8000", f"127.0.0.1:{backend}")
-        blocks.append(block)
+    backend, gateway, _ = ports
+    block = (templates / "nginx.conf").read_text(encoding="utf-8")
+    block = block.replace("listen 443 ssl;", f"listen 127.0.0.1:{gateway} ssl;")
+    block = block.replace("/etc/ssl/nomi/", str(directory) + "/")
+    block = block.replace("127.0.0.1:8000", f"127.0.0.1:{backend}")
     configuration = (
         f"pid {directory}/nginx.pid;\nerror_log {directory}/nginx-error.log warn;\n"
         "worker_processes 1;\nevents { worker_connections 64; }\nhttp {\n"
         "access_log off;\n"
         f"client_body_temp_path {directory}/client-body;\n"
-        f"proxy_temp_path {directory}/proxy;\n" + "\n".join(blocks) + "\n}\n"
+        f"proxy_temp_path {directory}/proxy;\n" + block + "\n}\n"
     )
     path = directory / "nginx.conf"
     path.write_text(configuration, encoding="utf-8")
@@ -264,6 +255,10 @@ def exercise(directory, ports):
     backend, public, internal = ports
     public_url = f"https://127.0.0.1:{public}"
     internal_url = f"https://127.0.0.1:{internal}"
+    if public != internal:
+        raise AssertionError(
+            "Public and internal requests must use the same TLS listener"
+        )
     authorization = {"Authorization": "Bearer " + TOKEN}
     for identity in (None, "untrusted-client", "expired-client"):
         rejected_certificate(directory, internal_url, identity)
@@ -278,8 +273,12 @@ def exercise(directory, ports):
         ) as bot,
     ):
         expect(public_client.get("/health"), 200)
-        expect(bot.get("/health"), 404)
-        for path in ("/internal", "/internal/v1/logins/verify"):
+        expect(bot.get("/health"), 200)
+        for path in (
+            "/internal",
+            "/internal/v1/logins/verify",
+            "/%69nternal/v1/logins/verify",
+        ):
             response = public_client.post(
                 path,
                 json={},
@@ -289,8 +288,10 @@ def exercise(directory, ports):
                     "X-Forwarded-For": "127.0.0.1",
                 },
             )
-            if response.status_code != 404:
-                raise AssertionError("The public listener exposed an internal route")
+            if response.status_code != (404 if path == "/internal" else 403):
+                raise AssertionError(
+                    "A certificate-free request reached an internal route"
+                )
         with httpx.Client(
             base_url=f"http://127.0.0.1:{backend}", trust_env=False
         ) as direct:
@@ -361,7 +362,7 @@ def exercise(directory, ports):
         "untrusted_certificate",
         "expired_certificate",
         "wrong_bearer",
-        "public_api",
+        "same_domain_and_port_public_api",
         "public_spoof_header",
         "internal_header_overwrite",
         "backend_missing_verification",

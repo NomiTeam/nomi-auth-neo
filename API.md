@@ -13,7 +13,7 @@
 - 默认同一来源 IP 每分钟普通请求 300 次、敏感 POST 请求 20 次。部署反代时应正确设置可信代理；不要信任任意客户端传入的转发头。
 - 游戏令牌默认 24 小时、管理令牌 1 小时、刷新令牌 30 天；实际以配置及响应的到期时间为准。
 
-启用 `NOMI_INTERNAL_MTLS_REQUIRED` 后，`/internal/` 还要求本机反代验证客户端证书，否则返回 403 `MTLS_REQUIRED`；原有机器人凭证仍需提供。公开入口必须清除 `X-Nomi-Client-Verify`，内部入口仅转发 Nginx 的验证结果，详见 [mTLS 配置](deploy/MTLS.md)。
+启用 `NOMI_INTERNAL_MTLS_REQUIRED` 后，`/internal/` 还要求本机反代验证客户端证书，否则返回 403 `MTLS_REQUIRED`；原有机器人凭证仍需提供。公开路径必须清除 `X-Nomi-Client-Verify`，内部路径仅转发 Nginx 的验证结果，详见 [mTLS 配置](deploy/MTLS.md)。
 
 ## 推荐登录流程
 
