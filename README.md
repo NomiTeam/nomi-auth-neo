@@ -1,6 +1,6 @@
 # Nomi Auth Neo
 
-基于 Rust 的 QQ 群验证码认证服务，提供登录、注册、改名、皮肤和 Yggdrasil 接口，支持 SQLite 和 MariaDB。
+基于 Rust 的 QQ 群验证码认证服务，提供登录、注册、改名、皮肤和 Yggdrasil 接口，支持 SQLite 和 MySQL/MariaDB。
 
 搭配 [Nomi Launcher](https://github.com/NomiTeam/nomi-launcher) 和 [Nomi Auth Plugin](https://github.com/NomiTeam/nomi-auth-plugin) 使用。
 
@@ -8,7 +8,7 @@
 
 ## 运行
 
-[发布包](https://github.com/NomiTeam/nomi-auth-neo/releases)提供 Linux 和 Windows x86_64 版本，程序无需额外安装运行库。使用 MariaDB 时，需要已有的数据库服务。
+[发布包](https://github.com/NomiTeam/nomi-auth-neo/releases)提供 Linux 和 Windows x86_64 版本，程序无需额外安装运行库。使用 MySQL/MariaDB 时，需要已有的数据库服务。
 
 下载并运行可执行文件。首次运行会在当前目录生成 `.env` 和随机机器人密钥，提示修改配置后退出。填写公网地址、应用 ID 和群 ID，将密钥同步到机器人配置，再次运行即可启动服务：
 
@@ -37,7 +37,7 @@ $ ./nomi-auth-neo cleanup
 
 备份包含数据库快照、皮肤和签名私钥。恢复只写入新目录，不覆盖已有数据。
 
-SQLite 迁往 MariaDB 时，配置空目标库后执行：
+SQLite 迁往 MySQL/MariaDB 时，配置空目标库后执行：
 
 ```shell
 $ ./nomi-auth-neo migrate-database restored-data/nomi-auth.sqlite3
