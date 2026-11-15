@@ -1,6 +1,6 @@
 # 开发指南
 
-请不要将改动直接 push 到 main，而是在 dev 开发并创建 PR。提交信息和 PR 描述都需要 `Co-authored-by` 共同作者署名。
+请不要将改动直接 push 到 main，而是在 dev 开发并创建 PR。
 
 ## 环境
 
