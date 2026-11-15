@@ -51,6 +51,37 @@ async fn begin(auth: &Auth) -> Value {
     call(auth, request("POST", "/api/v1/logins", json!({}))).await
 }
 
+#[tokio::test]
+async fn pending_login_poll_does_not_wait_for_an_unrelated_writer() {
+    let directory = tempfile::tempdir().unwrap();
+    let settings = Settings {
+        data_dir: directory.path().to_owned(),
+        ..Settings::default()
+    };
+    let database = Database::open(&settings).await.unwrap();
+    let auth = Auth::new(Arc::new(settings), database.clone());
+    let login = begin(&auth).await;
+
+    // Warm a second reader before holding the database writer transaction.
+    let first = database.pool().acquire().await.unwrap();
+    let second = database.pool().acquire().await.unwrap();
+    drop((first, second));
+    let writer = database.write().await.unwrap();
+    let path = format!("/api/v1/logins/{}", login["request_id"].as_str().unwrap());
+    let poll = authorized(
+        "GET",
+        &path,
+        login["poll_token"].as_str().unwrap(),
+        json!({}),
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1), auth.handle(&poll))
+        .await
+        .expect("Read-only polling must not wait for the writer")
+        .unwrap();
+    assert_eq!(result.body.unwrap()["status"], "PENDING");
+    writer.commit().await.unwrap();
+}
+
 async fn claim(auth: &Auth, login: &Value, member: &str, event_id: &str) -> Value {
     call(
         auth,

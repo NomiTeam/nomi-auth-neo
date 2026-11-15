@@ -53,13 +53,33 @@ impl Logins {
     }
 
     pub async fn status(&self, request: &Request, id: &str) -> Result<Reply> {
+        let poll = request.bearer()?;
+        let record = {
+            let mut connection = self.database.pool().acquire().await?;
+            self.find_request(&mut connection, id, poll).await?
+        };
+
+        // Ordinary polling must not compete with registration or session writers.
+        if record.status == "FAILED" {
+            return self.consume_failure(id, poll).await;
+        }
+        Ok(Self::status_reply(&record))
+    }
+
+    async fn consume_failure(&self, id: &str, poll: &str) -> Result<Reply> {
         let mut transaction = self.database.write().await?;
+        // Recheck under the writer lock: only one caller may consume the failure.
         let record = self
-            .find_request(transaction.connection(), id, request.bearer()?)
+            .find_request(transaction.connection(), id, poll)
             .await?;
-        if record.status.as_str() == "FAILED" {
+        if record.status == "FAILED" {
             self.delete(transaction.connection(), id).await?;
         }
+        transaction.commit().await?;
+        Ok(Self::status_reply(&record))
+    }
+
+    fn status_reply(record: &LoginRecord) -> Reply {
         let expired_status = matches!(
             record.status.as_str(),
             "PENDING" | "AWAITING_NAME" | "VERIFIED"
@@ -69,10 +89,9 @@ impl Logins {
         } else {
             record.status.as_str()
         };
-        let result =
-            json!({"status":status,"expires_at":record.expires_at,"error":record.error.as_deref()});
-        transaction.commit().await?;
-        Ok(Reply::ok(result))
+        Reply::ok(
+            json!({"status":status,"expires_at":record.expires_at,"error":record.error.as_deref()}),
+        )
     }
 
     pub async fn cancel(&self, request: &Request, id: &str) -> Result<Reply> {
