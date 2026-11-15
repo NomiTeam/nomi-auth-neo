@@ -34,7 +34,7 @@ impl Default for Settings {
             bot_token: String::new(),
             bot_app_id: String::new(),
             group_openid: String::new(),
-            group_label: "服务器指定群".into(),
+            group_label: "Server Group".into(),
             registration_ttl: 300,
             rename_cooldown: 604800,
             game_token_ttl: 86400,
@@ -161,7 +161,7 @@ NOMI_DATA_DIR=./data
 NOMI_BOT_TOKEN={bot_token}
 NOMI_BOT_APP_ID=
 NOMI_GROUP_OPENID=
-NOMI_GROUP_LABEL=服务器指定群
+NOMI_GROUP_LABEL=Server Group
 NOMI_REGISTRATION_TTL=300
 NOMI_RENAME_COOLDOWN=604800
 NOMI_GAME_TOKEN_TTL=86400
