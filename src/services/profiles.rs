@@ -71,7 +71,7 @@ impl Profiles {
         Ok(json!({"uuid":profile.uuid,"name":name}))
     }
 
-    pub async fn rename(&self, request: &Request, game_profile: Option<&str>) -> Result<Reply> {
+    pub async fn rename(&self, request: &Request, game_profile: &str) -> Result<Reply> {
         let payload: NameRequest = request.parse()?;
         if !valid_name(&payload.name) {
             return Err(Error::invalid());
@@ -79,36 +79,28 @@ impl Profiles {
         let token = request.bearer()?;
         let mut transaction = self.database.write().await?;
         let connection = transaction.connection();
-        let kind = if game_profile.is_some() {
-            "game"
-        } else {
-            "management"
-        };
-        let account = self.accounts.token_account(connection, token, kind).await?;
+        let account = self
+            .accounts
+            .token_account(connection, token, "game")
+            .await?;
         let profile = self.accounts.profile(connection, &account.id).await?;
-        if game_profile.is_some_and(|id| id.replace('-', "") != profile.uuid) {
+        if game_profile.replace('-', "") != profile.uuid {
             return Err(Error::problem(
                 "PROFILE_MISMATCH",
                 "只能修改自己的角色",
                 403,
             ));
         }
-        let renamed = self
-            .rename_profile(connection, &account.id, &payload.name)
+        self.rename_profile(connection, &account.id, &payload.name)
             .await?;
-        let result = if game_profile.is_some() {
-            let record = sqlx::query("SELECT client_token FROM tokens WHERE hash=?")
-                .bind(digest(token))
-                .fetch_one(&mut *connection)
-                .await?;
-            let client_token: Option<String> =
-                super::models::optional_text(&record, "client_token")?;
-            let selected = json!({"id":profile.uuid,"name":payload.name});
-            json!({"login_name":account.login_name,"game":{"accessToken":token,"clientToken":client_token,
-                "selectedProfile":selected,"availableProfiles":[selected]}})
-        } else {
-            renamed
-        };
+        let record = sqlx::query("SELECT client_token FROM tokens WHERE hash=?")
+            .bind(digest(token))
+            .fetch_one(&mut *connection)
+            .await?;
+        let client_token = super::models::optional_text(&record, "client_token")?;
+        let selected = json!({"id":profile.uuid,"name":payload.name});
+        let result = json!({"login_name":account.login_name,"game":{"accessToken":token,"clientToken":client_token,
+            "selectedProfile":selected,"availableProfiles":[selected]}});
         transaction.commit().await?;
         Ok(Reply::ok(result))
     }

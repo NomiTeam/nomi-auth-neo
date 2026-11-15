@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn retry_derivation_matches_the_python_fixture() {
+    fn retry_derivation_matches_the_persisted_fixture() {
         assert_eq!(
             derive_token("poll", &"a".repeat(64), "nonce", "game"),
             "82d090d781a3e9ce0f7a9b92086477d92d92dfa377721e76fd7b0dd171e05251"

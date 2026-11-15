@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use sqlx::{AnyConnection, Row};
 
 use super::accounts::Accounts;
-use super::models::{Account, SessionClaim, Token, TokenOptions};
+use super::models::{Account, LoginRecord, Token, TokenOptions};
 use crate::core::security::{derive_token, digest, now, same, secret, valid_request_id};
 use crate::core::{Error, Reply, Request, Result, Settings};
 use crate::storage::Database;
@@ -30,13 +30,14 @@ impl Sessions {
     pub async fn issue(
         &self,
         connection: &mut AnyConnection,
-        claim: &SessionClaim<'_>,
+        claim: &LoginRecord,
         retry_id: Option<&str>,
         poll: Option<&str>,
     ) -> Result<Value> {
         self.validate_claim(claim)?;
         let account_id = claim
             .account_id
+            .as_deref()
             .ok_or_else(|| Error::problem("ACCOUNT_UNAVAILABLE", "账号不可用", 403))?;
         let account = sqlx::query_as::<_, Account>(
             "SELECT id,login_name,status FROM accounts WHERE id=? AND status='active'",
@@ -50,11 +51,11 @@ impl Sessions {
             .create_grant(connection, account_id, &client_token, retry_id, poll)
             .await?;
         if let Some((retry_id, poll)) = retry_id.zip(poll) {
-            self.save_login_retry(connection, claim.id, poll, retry_id, &grant)
+            self.save_login_retry(connection, &claim.id, poll, retry_id, &grant)
                 .await?;
         }
-        sqlx::query(&format!("DELETE FROM {} WHERE id=?", claim.table))
-            .bind(claim.id)
+        sqlx::query("DELETE FROM login_requests WHERE id=?")
+            .bind(&claim.id)
             .execute(&mut *connection)
             .await?;
         self.accounts
@@ -150,8 +151,8 @@ impl Sessions {
         Ok(())
     }
 
-    fn validate_claim(&self, claim: &SessionClaim<'_>) -> Result<()> {
-        if claim.status != claim.required_status {
+    fn validate_claim(&self, claim: &LoginRecord) -> Result<()> {
+        if claim.status != "VERIFIED" {
             return Err(Error::problem(
                 "NOT_VERIFIED",
                 "申请尚未验证或已经结束",
@@ -429,19 +430,13 @@ impl Sessions {
         Ok(Reply::empty(204))
     }
 
-    pub async fn current_profile(&self, request: &Request, management: bool) -> Result<Reply> {
+    pub async fn current_profile(&self, request: &Request) -> Result<Reply> {
         let mut connection = self.database.pool().acquire().await?;
-        let kind = if management { "management" } else { "game" };
         let account = self
             .accounts
-            .token_account(&mut connection, request.bearer()?, kind)
+            .token_account(&mut connection, request.bearer()?, "game")
             .await?;
         let profile = self.accounts.profile(&mut connection, &account.id).await?;
-        if management {
-            return Ok(Reply::ok(
-                json!({"login_name":account.login_name,"profile":profile}),
-            ));
-        }
         Ok(Reply::ok(json!({"id":profile.uuid,"name":profile.name})))
     }
 }

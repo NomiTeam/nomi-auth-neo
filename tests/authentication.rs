@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use nomi_auth_neo::{
-    core::{Reply, Request, Settings},
+    core::{Request, Settings},
     services::Auth,
     storage::Database,
 };
@@ -45,10 +45,6 @@ fn event(value: &str, member: &str, event: &str, registration: bool) -> Value {
 
 async fn call(auth: &Auth, request: Request) -> Value {
     auth.handle(&request).await.unwrap().body.unwrap()
-}
-
-fn body(reply: Reply) -> Value {
-    reply.body.unwrap()
 }
 
 async fn begin(auth: &Auth) -> Value {
@@ -237,59 +233,32 @@ async fn conflict_is_saved_and_private_poll_consumes_failure() {
 }
 
 #[tokio::test]
-async fn legacy_registration_and_private_poll_remain_supported() {
+async fn removed_registration_interfaces_return_not_found() {
     let (_directory, auth) = service().await;
-    let registration = call(
-        &auth,
-        request("POST", "/api/v1/registrations", json!({"name":"Alice"})),
-    )
-    .await;
-    let redeemed = call(
-        &auth,
-        authorized(
-            "POST",
-            "/internal/v1/registrations/redeem",
-            &"x".repeat(32),
-            event(
-                registration["code"].as_str().unwrap(),
-                "member",
-                "event",
-                false,
-            ),
-        ),
-    )
-    .await;
-    assert_eq!(redeemed["status"], "COMPLETED");
-    let path = format!(
-        "/api/v1/registrations/{}/session",
-        registration["request_id"].as_str().unwrap()
-    );
-    let exchange = authorized(
-        "POST",
-        &path,
-        registration["poll_token"].as_str().unwrap(),
-        json!({}),
-    );
-    let response = body(auth.handle(&exchange).await.unwrap());
-    assert_eq!(response["game"]["selectedProfile"]["name"], "Alice");
-    assert_eq!(auth.handle(&exchange).await.err().unwrap().status, 404);
+    for (method, path) in [
+        ("POST", "/api/v1/registrations"),
+        ("GET", "/api/v1/registrations/old"),
+        ("DELETE", "/api/v1/registrations/old"),
+        ("POST", "/api/v1/registrations/old/session"),
+        ("POST", "/internal/v1/registrations/redeem"),
+        ("GET", "/api/v1/names/availability"),
+        ("GET", "/api/v1/me"),
+        ("PATCH", "/api/v1/me/profile/name"),
+    ] {
+        assert_eq!(
+            auth.handle(&request(method, path, json!({})))
+                .await
+                .err()
+                .unwrap()
+                .status,
+            404
+        );
+    }
 }
 
 #[tokio::test]
 async fn invalid_names_and_wrong_group_do_not_claim_requests() {
     let (_directory, auth) = service().await;
-    assert_eq!(
-        auth.handle(&request(
-            "POST",
-            "/api/v1/registrations",
-            json!({"name":"ab"})
-        ))
-        .await
-        .err()
-        .unwrap()
-        .status,
-        422
-    );
     assert_eq!(
         auth.handle(&request("POST", "/api/v1/logins", json!({"name":"Alice"})))
             .await
@@ -344,7 +313,7 @@ async fn existing_account() -> (TempDir, Auth, Arc<Database>) {
 }
 
 #[tokio::test]
-async fn existing_python_receipt_replays_without_a_live_request() {
+async fn persisted_receipt_replays_without_a_live_request() {
     use nomi_auth_neo::core::security::{digest, now};
 
     let (_directory, auth, database) = existing_account().await;
