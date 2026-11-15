@@ -94,7 +94,7 @@ jobs:
         run: python scripts/release.py smoke target/${{ matrix.target }}/release/${{ matrix.binary }}
       - name: Collect platform dependency notices
         run: python scripts/collect_licenses.py --target ${{ matrix.target }} --output artifacts/THIRD_PARTY_NOTICES.md
-      - name: Package executable and configuration examples
+      - name: Package executable and documentation
         run: >-
           python scripts/release.py package target/${{ matrix.target }}/release/${{ matrix.binary }}
           --platform ${{ matrix.platform }} --notices artifacts/THIRD_PARTY_NOTICES.md

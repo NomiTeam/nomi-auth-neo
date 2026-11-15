@@ -72,6 +72,19 @@ def smoke(binary: Path, version: str) -> None:
             NOMI_BOT_APP_ID="release-test-app",
             NOMI_GROUP_OPENID="release-test-group",
         )
+        initial = subprocess.run(
+            [str(binary)],
+            check=False,
+            cwd=temporary,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if initial.returncode != 0 or not (Path(temporary) / ".env").is_file():
+            raise ValueError("First startup did not generate configuration and exit")
+        if (Path(temporary) / "data").exists():
+            raise ValueError("First startup created data before configuration")
         with tempfile.TemporaryFile() as log:
             process = subprocess.Popen(
                 [str(binary), "serve", "--host", "127.0.0.1", "--port", str(port)],
@@ -136,7 +149,6 @@ def package(
 ) -> Path:
     files = {
         PLATFORMS[platform]: binary,
-        ".env.example": directory / ".env.example",
         "README.md": directory / "README.md",
         "CONTRIBUTING.md": directory / "CONTRIBUTING.md",
         "API.md": directory / "API.md",

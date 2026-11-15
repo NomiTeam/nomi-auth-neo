@@ -139,6 +139,8 @@ def processes(binary, nginx, directory, templates):
         NOMI_BOT_TOKEN=TOKEN,
         RUST_LOG="error",
     )
+    # The isolated service receives its complete configuration through environment values.
+    (directory / ".env").write_text("", encoding="utf-8")
     configuration = nginx_configuration(directory, templates, ports)
     subprocess.run(
         [str(nginx), "-p", str(directory), "-c", str(configuration), "-t"],

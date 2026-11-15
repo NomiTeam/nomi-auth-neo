@@ -155,13 +155,32 @@ pub fn create_env(path: &std::path::Path) -> std::io::Result<bool> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| std::path::Path::new("."));
-    let configuration = include_str!("../../.env.example")
-        .replace(
-            "replace-with-a-random-secret-at-least-32-characters",
-            &super::security::secret(),
-        )
-        .replace("your-bot-app-id", "")
-        .replace("your-allowed-group-openid", "");
+    let configuration = format!(
+        r#"NOMI_PUBLIC_URL=http://127.0.0.1:8000
+NOMI_DATA_DIR=./data
+NOMI_BOT_TOKEN={bot_token}
+NOMI_BOT_APP_ID=
+NOMI_GROUP_OPENID=
+NOMI_GROUP_LABEL=服务器指定群
+NOMI_REGISTRATION_TTL=300
+NOMI_RENAME_COOLDOWN=604800
+NOMI_GAME_TOKEN_TTL=86400
+NOMI_REFRESH_TOKEN_TTL=2592000
+NOMI_MANAGEMENT_TOKEN_TTL=3600
+
+# sqlite (default), mysql, or mariadb
+NOMI_DATABASE_BACKEND=sqlite
+NOMI_MYSQL_HOST=127.0.0.1
+NOMI_MYSQL_PORT=3306
+NOMI_MYSQL_DATABASE=nomi_auth
+NOMI_MYSQL_USER=nomi_auth
+NOMI_MYSQL_PASSWORD=
+# NOMI_MYSQL_UNIX_SOCKET=/run/mysqld/mysqld.sock
+# NOMI_MYSQL_SSL_CA=/path/to/ca.pem
+NOMI_DATABASE_TIMEOUT=10
+"#,
+        bot_token = super::security::secret(),
+    );
     let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
     temporary.write_all(configuration.as_bytes())?;
     temporary.as_file().sync_all()?;

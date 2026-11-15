@@ -71,7 +71,6 @@ class ReleaseTests(unittest.TestCase):
 
     def test_packages_exclude_real_configuration_and_keep_stable_binary_names(self):
         for name in (
-            ".env.example",
             "README.md",
             "CONTRIBUTING.md",
             "API.md",
@@ -100,7 +99,7 @@ class ReleaseTests(unittest.TestCase):
                     self.assertIn("deploy/nginx.conf", names)
             self.assertIn(release.PLATFORMS[platform], names)
             self.assertIn("THIRD_PARTY_NOTICES.md", names)
-            self.assertIn(".env.example", names)
+            self.assertNotIn(".env.example", names)
             self.assertIn("CONTRIBUTING.md", names)
             self.assertNotIn(".env", names)
             self.assertNotIn("Cargo.toml", names)
