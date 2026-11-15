@@ -71,7 +71,9 @@ $ git push origin v0.1.0
 
 发布名与 tag 相同，附件为 Linux 的 tar.gz 和 Windows 的 zip。包内程序名不带版本号，包含使用说明和对应平台的许可证。两包上传完成后才公开 release，已公开版本不会自动覆盖。
 
-PR 和手动运行生成测试包，tag 推送执行正式发布。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
+PR 只运行一组格式、Clippy、Rust 和打包脚本测试；新提交会取消旧检查，合并 main 不重复运行。
+
+MySQL/MariaDB、Linux 静态构建和 HTTPS 联调通过 Integration 工作流手动运行。Release 仅支持 main 手动构建或 tag 发布，不在 PR 中构建 Linux/Windows 发布包。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
 
 ---
 
