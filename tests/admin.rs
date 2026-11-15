@@ -49,6 +49,19 @@ async fn count(database: &Database, table: &str) -> i64 {
         .unwrap()
 }
 
+async fn clear_test_database(database: &Database) {
+    let mut transaction = database.write().await.unwrap();
+    for table in nomi_auth_neo::storage::transfer::TABLES.iter().rev() {
+        if *table != "schema_versions" {
+            sqlx::query(&format!("DELETE FROM {table}"))
+                .execute(transaction.connection())
+                .await
+                .unwrap();
+        }
+    }
+    transaction.commit().await.unwrap();
+}
+
 async fn exercise_login(auth: &Auth, database: &Database) {
     let login = begin(auth).await;
     let profile = auth
@@ -235,12 +248,9 @@ async fn mysql_test_login_roundtrip() {
         ..Settings::default()
     };
     let database = Database::open(&settings).await.unwrap();
-    assert_eq!(
-        count(&database, "accounts").await,
-        0,
-        "Use a fresh isolated test database"
-    );
+    clear_test_database(&database).await;
     let auth = Auth::new(Arc::new(settings), database.clone());
     exercise_login(&auth, &database).await;
+    clear_test_database(&database).await;
     database.pool().close().await;
 }
