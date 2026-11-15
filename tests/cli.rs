@@ -112,6 +112,7 @@ fn no_arguments_print_help_without_reading_or_creating_configuration() {
         "cleanup",
         "enable",
         "disable",
+        "delete",
         "migrate-database",
         "test-login",
     ] {
@@ -233,5 +234,27 @@ fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
         )
         .status
         .success()
+    );
+    let deleted = run(directory.path(), &["delete", "admintest"]);
+    assert!(
+        deleted.status.success(),
+        "{}",
+        String::from_utf8_lossy(&deleted.stderr)
+    );
+    assert!(String::from_utf8_lossy(&deleted.stdout).contains("Account AdminTest: deleted"));
+    assert!(
+        !run(directory.path(), &["delete", "AdminTest"])
+            .status
+            .success()
+    );
+    let request = format!(
+        "GET /api/v1/game/profile HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
+        session["game"]["accessToken"].as_str().unwrap()
+    );
+    assert!(
+        service
+            .request(&request)
+            .unwrap()
+            .starts_with("HTTP/1.1 403")
     );
 }

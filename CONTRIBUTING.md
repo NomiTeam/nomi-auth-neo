@@ -41,10 +41,10 @@ $ cargo test --all-targets
 $ python -m unittest discover -s tests -p test_release.py -v
 ```
 
-配置独立的 `NOMI_TEST_MYSQL_DATABASE/USER/PASSWORD` 后，可运行 MariaDB 测试：
+配置独立的 `NOMI_TEST_MYSQL_DATABASE/USER/PASSWORD` 后，可运行数据库集成测试：
 
 ```shell
-$ cargo test --test storage --test admin -- --ignored --test-threads=1
+$ cargo test --test storage --test admin --test deletion -- --ignored --test-threads=1
 ```
 
 测试库名必须以 `nomi_auth_test_` 开头，其中的业务表会被清空。可选配置 `NOMI_TEST_MYSQL_HOST/PORT`。

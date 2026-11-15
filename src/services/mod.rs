@@ -1,4 +1,5 @@
 mod accounts;
+mod admin;
 pub mod game;
 mod logins;
 mod models;
@@ -19,6 +20,7 @@ use logins::Logins;
 use profiles::Profiles;
 use sessions::Sessions;
 
+pub use admin::Admin;
 pub use models::{Account, Profile, TokenOptions};
 
 /// Compose account rules once and share them across launcher and game protocols.

@@ -40,6 +40,7 @@ jobs:
         run: echo "NOMI_TEST_MYSQL_PORT=${{ job.services.mysql.ports['3306'] }}" >> "$GITHUB_ENV"
       - run: cargo test --locked --test storage -- --ignored --test-threads=1
       - run: cargo test --locked --test admin -- --ignored --test-threads=1
+      - run: cargo test --locked --test deletion -- --ignored --test-threads=1
 
   linux-static:
     runs-on: ubuntu-latest

@@ -32,10 +32,14 @@ $ ./nomi-auth-neo backup backups/nomi.tar.gz
 $ ./nomi-auth-neo restore backups/nomi.tar.gz restored-data
 $ ./nomi-auth-neo disable Alice
 $ ./nomi-auth-neo enable Alice
+$ ./nomi-auth-neo delete Alice
 $ ./nomi-auth-neo cleanup
 ```
 
 备份包含数据库快照、皮肤和签名私钥。恢复只写入新目录，不覆盖已有数据。
+
+`delete ID` 永久删除任意账号及其角色、QQ 绑定、令牌和关联认证记录，不影响其他账号或游戏内数据。
+账号删除后可以重新注册同名 ID，但 UUID 会改变。共用皮肤保留，无引用的皮肤由清理任务延迟回收。
 
 SQLite 迁往 MySQL/MariaDB 时，配置空目标库后执行：
 
@@ -55,7 +59,7 @@ $ ./nomi-auth-neo test-login AAAA-BBBB-CCCC LocalTest
 
 命令创建不绑定 QQ 的测试账号并批准本次登录；同名未绑定账号会复用，UUID 不变。
 已被领取、过期的登录码，以及已绑定 QQ 或停用的账号均拒绝操作。
-此命令只能在服务端运行，没有对应的 HTTP 接口。测试结束后可用 `disable LocalTest` 停用账号并撤销令牌。
+此命令只能在服务端运行，没有对应的 HTTP 接口。测试结束后可用 `disable LocalTest` 停用账号，或 `delete LocalTest` 永久删除。
 
 ## 项目结构
 

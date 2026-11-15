@@ -1,8 +1,8 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use nomi_auth_neo::{
-    core::{Error, Settings, security::now},
+    core::{Settings, security::now},
     http::App,
-    services::Auth,
+    services::{Admin, Auth},
     storage::{Database, maintenance},
 };
 use std::{net::SocketAddr, path::PathBuf};
@@ -46,6 +46,11 @@ enum Command {
     },
     /// Re-enable a disabled account.
     Enable {
+        /// Account ID, matched without case sensitivity.
+        login_name: String,
+    },
+    /// Permanently delete an account, its QQ binding and authentication sessions.
+    Delete {
         /// Account ID, matched without case sensitivity.
         login_name: String,
     },
@@ -139,49 +144,22 @@ async fn maintain(settings: Settings, command: Command) -> anyhow::Result<()> {
             let profile = auth.test_login(&code, &name).await?;
             println!("Test login approved: {} ({})", profile.name, profile.uuid);
         }
-        Command::Disable { login_name } => set_account(&database, &login_name, false).await?,
-        Command::Enable { login_name } => set_account(&database, &login_name, true).await?,
+        Command::Disable { login_name } => {
+            Admin::new(database).set_enabled(&login_name, false).await?;
+            println!("Account {login_name}: disabled");
+        }
+        Command::Enable { login_name } => {
+            Admin::new(database).set_enabled(&login_name, true).await?;
+            println!("Account {login_name}: active");
+        }
+        Command::Delete { login_name } => {
+            let name = Admin::new(database).delete(&login_name).await?;
+            println!("Account {name}: deleted");
+        }
         Command::Serve { .. } | Command::Restore { .. } => {
             unreachable!("Handled before maintenance")
         }
     }
-    Ok(())
-}
-
-async fn set_account(database: &Database, login_name: &str, enabled: bool) -> anyhow::Result<()> {
-    let mut transaction = database.write().await?;
-    let account_id: Option<String> =
-        sqlx::query_scalar("SELECT id FROM accounts WHERE login_normalized=?")
-            .bind(login_name.to_lowercase())
-            .fetch_optional(transaction.connection())
-            .await?;
-    let account_id =
-        account_id.ok_or_else(|| Error::problem("ACCOUNT_NOT_FOUND", "Account not found", 404))?;
-    let status = if enabled { "active" } else { "disabled" };
-    let action = if enabled { "enable" } else { "disable" };
-    sqlx::query("UPDATE accounts SET status=? WHERE id=?")
-        .bind(status)
-        .bind(&account_id)
-        .execute(transaction.connection())
-        .await?;
-    sqlx::query("DELETE FROM tokens WHERE account_id=?")
-        .bind(&account_id)
-        .execute(transaction.connection())
-        .await?;
-    sqlx::query(
-        "DELETE FROM joins WHERE profile_id IN (SELECT uuid FROM profiles WHERE account_id=?)",
-    )
-    .bind(&account_id)
-    .execute(transaction.connection())
-    .await?;
-    sqlx::query("INSERT INTO audit(action,account_id,created_at) VALUES(?,?,?)")
-        .bind(action)
-        .bind(&account_id)
-        .bind(now())
-        .execute(transaction.connection())
-        .await?;
-    transaction.commit().await?;
-    println!("Account {login_name}: {status}");
     Ok(())
 }
 
