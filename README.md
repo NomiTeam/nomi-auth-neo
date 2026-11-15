@@ -10,7 +10,7 @@
 
 [发布包](https://github.com/NomiTeam/nomi-auth-neo/releases)提供 Linux 和 Windows x86_64 版本，程序无需额外安装运行库。使用 MariaDB 时，需要已有的数据库服务。
 
-将 `.env.example` 复制为 `.env`，填写公网地址、机器人凭证、应用 ID 和群 ID，然后执行：
+首次运行会在当前目录生成 `.env`，自动生成机器人密钥。填写公网地址、应用 ID 和群 ID，将该密钥同步到机器人配置后，再次启动：
 
 ```shell
 $ chmod +x nomi-auth-neo

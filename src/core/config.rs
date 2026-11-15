@@ -143,6 +143,35 @@ impl Settings {
     }
 }
 
+/// Publish a private initial configuration without replacing an existing file.
+pub fn create_env(path: &std::path::Path) -> std::io::Result<bool> {
+    use std::io::Write;
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error),
+    }
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let configuration = include_str!("../../.env.example")
+        .replace(
+            "replace-with-a-random-secret-at-least-32-characters",
+            &super::security::secret(),
+        )
+        .replace("your-bot-app-id", "")
+        .replace("your-allowed-group-openid", "");
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    temporary.write_all(configuration.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    match temporary.persist_noclobber(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error.error),
+    }
+}
+
 fn read<T: FromStr>(values: &HashMap<String, String>, name: &str, default: T) -> Result<T> {
     match values.get(&format!("NOMI_{name}")) {
         Some(value) => value
