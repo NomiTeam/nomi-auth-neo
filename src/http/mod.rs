@@ -55,6 +55,16 @@ impl App {
 
     async fn respond(&self, request: axum::extract::Request) -> Result<Response> {
         let path = decode_path(request.uri().path()).unwrap_or_default();
+        if self.settings.internal_mtls_required
+            && (path == "/internal" || path.starts_with("/internal/"))
+            && !runtime::verified_internal_client(&request)
+        {
+            return Err(Error::problem(
+                "MTLS_REQUIRED",
+                "内部接口需要客户端证书验证",
+                403,
+            ));
+        }
         let method = request.method().as_str().to_owned();
         let source = runtime::source_address(&request);
         if self.runtime.rate_limited(&source, &method, &path).await {
