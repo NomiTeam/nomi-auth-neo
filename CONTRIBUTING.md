@@ -1,51 +1,80 @@
 # 开发指南
 
-日常开发使用 `dev`。合并 `main` 必须通过 PR，检查通过后再审核合并。
+请不要将改动直接 push 到 main，而是在 dev 开发并创建 PR。提交信息和 PR 描述都需要 `Co-authored-by` 共同作者署名。
 
 ## 环境
 
-安装 Rust stable，包括 rustfmt 和 Clippy。SQLite 随程序编译，开发环境需要 C 编译器。
-
-## 检查与测试
+安装 Rust stable、rustfmt、Clippy 和 C 编译器。辅助检查使用 Python 3.13 和 uv；运行服务不需要这些开发工具。
 
 ```shell
-cargo fmt --all --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+$ cargo build
 ```
 
-提交信息与 PR 描述都需要 `Co-authored-by` 共同作者署名。
+编译后的程序位于 `target/debug`。
 
-提交使用简短英文，例如 `add login retry tests`。每次提交只处理一个独立目的，完成实现和对应测试后再提交。
+## 同步
 
-代码和注释使用英文，文档使用中文。保持方法职责明确，先校验再操作；优先用结构体和组合组织业务，不为每个字段添加访问方法。
-
-## 兼容性检查
-
-Rust 测试不能代替旧接口兼容性测试。具体命令和适配范围见 [兼容测试说明](tests/compatibility/README.md)。
-
-运行真实 MariaDB 测试时，设置 `NOMI_TEST_MYSQL_DATABASE`、`NOMI_TEST_MYSQL_USER`、`NOMI_TEST_MYSQL_PASSWORD`，可选 `NOMI_TEST_MYSQL_HOST/PORT`。测试库名必须以 `nomi_auth_test_` 开头，其中的业务表会被清空。
+先 commit 或 stash 本地改动，再同步 main 到当前分支：
 
 ```shell
-cargo test --test storage -- --ignored --test-threads=1
+$ git fetch origin
+$ git merge origin/main
 ```
 
-Python 只用于开发阶段与旧实现对照，服务端运行不需要 Python。
+解决冲突后提交；放弃合并可使用 `git merge --abort`。
 
-更新依赖后，运行 `python scripts/collect_licenses.py` 更新 Linux 第三方声明。发布流程用 `--target` 为两个平台分别收集许可证。
+## 审查
+
+提交前在项目根目录执行：
+
+```shell
+$ cargo fmt --all --check
+$ cargo clippy --all-targets -- -D warnings
+$ uvx ruff check scripts tests/test_release.py
+$ uvx ruff format --check scripts tests/test_release.py
+```
+
+代码和注释使用英文，文档使用中文。每次提交只处理一个功能，用简短英文说明改动。
+
+## 测试
+
+```shell
+$ cargo test --all-targets
+$ python -m unittest discover -s tests -p test_release.py -v
+```
+
+配置独立的 `NOMI_TEST_MYSQL_DATABASE/USER/PASSWORD` 后，可运行 MariaDB 测试：
+
+```shell
+$ cargo test --test storage -- --ignored --test-threads=1
+```
+
+测试库名必须以 `nomi_auth_test_` 开头，其中的业务表会被清空。可选配置 `NOMI_TEST_MYSQL_HOST/PORT`。
+
+Linux 安装 Nginx 后，可检查真实证书和机器人客户端：
+
+```shell
+$ uv run --with httpx --with cryptography --with pydantic python scripts/test_mtls.py --neo-binary target/release/nomi-auth-neo --plugin-reference /path/to/nomi-auth-plugin
+```
+
+脚本使用临时证书、数据和本地端口，不读取或重载系统 Nginx 配置。
 
 ## 发布
 
-先在 `dev` 更新 `Cargo.toml` 的包版本，并用 Cargo 更新 `Cargo.lock`，通过 PR 合并 `main`。当前版本为 `0.1.0`，对应 tag 为 `v0.1.0`。
+先更新 `Cargo.toml` 中的版本，用 Cargo 更新 `Cargo.lock`，再通过 PR 合并 main。以 `0.1.0` 为例：
 
 ```shell
-git fetch origin
-git tag v0.1.0 origin/main
-git push origin v0.1.0
+$ git fetch origin
+$ git tag v0.1.0 origin/main
+$ git push origin v0.1.0
 ```
 
-工作流会核对 tag、包版本和 `main` 归属，构建并启动检查 Linux musl 与 Windows MSVC 程序。Windows 静态链接 CRT，并检查额外运行库依赖。
+工作流核对版本和 main 归属，编译并启动检查 Linux musl 与 Windows MSVC 程序。Windows 静态链接 CRT，并检查额外运行库依赖。
 
-发布名与 tag 相同，附件仅为 `nomi-auth-neo-linux-x86_64.tar.gz` 和 `nomi-auth-neo-windows-x86_64.zip`。包内程序名不带版本号，并包含配置示例和对应平台的第三方声明。两包上传完成后才公开 release；失败可重跑草稿，已公开版本不会被自动覆盖。
+发布名与 tag 相同，附件为 Linux 的 tar.gz 和 Windows 的 zip。包内程序名不带版本号，包含配置示例和对应平台的许可证。两包上传完成后才公开 release，已公开版本不会自动覆盖。
 
-PR 和手动运行只产生测试构建，不创建 tag 或 release。
+PR 和手动运行只产生测试包，不创建 tag 或 release。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
+
+---
+
+以上检查通过后即可提交代码并创建 PR。
