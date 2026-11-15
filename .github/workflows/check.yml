@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: NomiTeam/nomi-auth-plugin
-          ref: 774ec9c0f8da662e1399fdc54f0fb245a9796afa
+          ref: 5862f945cc22914a39623da6d3ccd594c52da1f5
           path: .reference/nomi-auth-plugin
       - uses: actions/download-artifact@v4
         with:
