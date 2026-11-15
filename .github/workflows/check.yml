@@ -74,7 +74,7 @@ jobs:
           path: artifacts/linux-x86_64/
           retention-days: 7
 
-  nginx-mtls:
+  https-gateway:
     needs: linux-static
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -94,9 +94,9 @@ jobs:
           python-version: '3.13'
       - name: Install isolated gateway test dependency
         run: sudo apt-get update && sudo apt-get install -y nginx
-      - name: Test real plugin and mTLS gateways against the static executable
+      - name: Test real plugin and HTTPS gateway against the static executable
         run: |
           chmod +x artifacts/linux-x86_64/nomi-auth-neo
-          uv run --project .reference/nomi-auth-plugin python scripts/test_mtls.py \
+          uv run --project .reference/nomi-auth-plugin python scripts/test_https.py \
             --neo-binary artifacts/linux-x86_64/nomi-auth-neo \
             --plugin-reference .reference/nomi-auth-plugin --nginx /usr/sbin/nginx

@@ -120,13 +120,8 @@ def nginx_configuration(directory, templates, ports):
     return path
 
 
-def tls_context(directory, identity=None):
-    context = ssl.create_default_context(cafile=directory / "server-ca.pem")
-    if identity is not None:
-        context.load_cert_chain(
-            directory / f"{identity}.pem", directory / f"{identity}-key.pem"
-        )
-    return context
+def tls_context(directory):
+    return ssl.create_default_context(cafile=directory / "server-ca.pem")
 
 
 @contextmanager
@@ -142,7 +137,6 @@ def processes(binary, nginx, directory, templates):
         NOMI_BOT_APP_ID="test-app",
         NOMI_GROUP_OPENID="test-group",
         NOMI_BOT_TOKEN=TOKEN,
-        NOMI_INTERNAL_MTLS_REQUIRED="true",
         RUST_LOG="error",
     )
     configuration = nginx_configuration(directory, templates, ports)
@@ -230,27 +224,6 @@ def member_event(event_id, **fields):
     }
 
 
-def rejected_certificate(directory, internal_url, identity):
-    with httpx.Client(
-        verify=tls_context(directory, identity), trust_env=False
-    ) as client:
-        try:
-            response = client.post(
-                internal_url + "/internal/v1/logins/verify",
-                json={},
-                headers={"Authorization": "Bearer " + TOKEN},
-            )
-        except httpx.TransportError:
-            return
-        if (
-            response.status_code != 403
-            or response.json().get("code") != "MTLS_REQUIRED"
-        ):
-            raise AssertionError(
-                f"Invalid client identity was not safely rejected: {identity}"
-            )
-
-
 def exercise(directory, ports):
     backend, public, internal = ports
     public_url = f"https://127.0.0.1:{public}"
@@ -260,15 +233,13 @@ def exercise(directory, ports):
             "Public and internal requests must use the same TLS listener"
         )
     authorization = {"Authorization": "Bearer " + TOKEN}
-    for identity in (None, "untrusted-client", "expired-client"):
-        rejected_certificate(directory, internal_url, identity)
     with (
         httpx.Client(
             base_url=public_url, verify=tls_context(directory), trust_env=False
         ) as public_client,
         httpx.Client(
             base_url=internal_url,
-            verify=tls_context(directory, "client"),
+            verify=tls_context(directory),
             trust_env=False,
         ) as bot,
     ):
@@ -281,25 +252,25 @@ def exercise(directory, ports):
         ):
             response = public_client.post(
                 path,
-                json={},
+                json=member_event("forged", code="AAAA-BBBB-CCCC"),
                 headers={
-                    **authorization,
                     "X-Nomi-Client-Verify": "SUCCESS",
                     "X-Forwarded-For": "127.0.0.1",
                 },
             )
-            if response.status_code != (404 if path == "/internal" else 403):
+            if response.status_code != (404 if path == "/internal" else 401):
                 raise AssertionError(
-                    "A certificate-free request reached an internal route"
+                    "Forged proxy headers bypassed secret authentication"
                 )
         with httpx.Client(
             base_url=f"http://127.0.0.1:{backend}", trust_env=False
         ) as direct:
             expect(
                 direct.post(
-                    "/internal/v1/logins/verify", json={}, headers=authorization
+                    "/internal/v1/logins/verify",
+                    json=member_event("direct", code="AAAA-BBBB-CCCC"),
                 ),
-                403,
+                401,
             )
         request = expect(public_client.post("/api/v1/logins", json={}), 201)
         payload = member_event("verify-new", code=request["code"])
@@ -324,12 +295,12 @@ def exercise(directory, ports):
         registered = expect(
             bot.post(
                 "/internal/v1/logins/register",
-                json=member_event("register", name="MtlsPlayer"),
+                json=member_event("register", name="HttpsPlayer"),
                 headers=authorization,
             ),
             200,
         )
-        if registered["name"] != "MtlsPlayer":
+        if registered["name"] != "HttpsPlayer":
             raise AssertionError("The trusted registration returned the wrong ID")
         session = expect(
             public_client.post(
@@ -357,21 +328,17 @@ def exercise(directory, ports):
         if logged_in["status"] != "VERIFIED" or logged_in["uuid"] != registered["uuid"]:
             raise AssertionError("The trusted existing-account login failed")
     return [
-        "valid_certificate_registration_and_login",
-        "missing_certificate",
-        "untrusted_certificate",
-        "expired_certificate",
+        "https_registration_and_login",
         "wrong_bearer",
         "same_domain_and_port_public_api",
-        "public_spoof_header",
-        "internal_header_overwrite",
-        "backend_missing_verification",
+        "forged_proxy_headers",
+        "backend_missing_secret",
     ]
 
 
 async def exercise_plugin(directory, ports, reference):
     # Import the real client modules without registering live NoneBot handlers.
-    package = types.ModuleType("_mtls_nomi_plugin")
+    package = types.ModuleType("_https_nomi_plugin")
     package.__path__ = [str(reference / "src" / "nomi_auth_plugin")]
     sys.modules[package.__name__] = package
     client_module = importlib.import_module(package.__name__ + ".client")
@@ -382,8 +349,6 @@ async def exercise_plugin(directory, ports, reference):
         nomi_bot_api_token=TOKEN,
         nomi_bot_app_id="test-app",
         nomi_allowed_group_openid="test-group",
-        nomi_tls_client_cert=str(directory / "client.pem"),
-        nomi_tls_client_key=str(directory / "client-key.pem"),
         nomi_tls_ca_cert=str(directory / "server-ca.pem"),
     )
     bot = client_module.AuthClient(config)
@@ -462,26 +427,11 @@ def main():
         "--templates", type=Path, default=Path(__file__).resolve().parents[1] / "deploy"
     )
     arguments = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="nomi-mtls-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="nomi-https-") as temporary:
         directory = Path(temporary)
         server_ca = issue_certificate(directory, "server-ca")
-        client_ca = issue_certificate(directory, "client-ca")
-        untrusted_ca = issue_certificate(directory, "untrusted-ca")
         issue_certificate(
             directory, "server", server_ca, ExtendedKeyUsageOID.SERVER_AUTH
-        )
-        issue_certificate(
-            directory, "client", client_ca, ExtendedKeyUsageOID.CLIENT_AUTH
-        )
-        issue_certificate(
-            directory,
-            "expired-client",
-            client_ca,
-            ExtendedKeyUsageOID.CLIENT_AUTH,
-            expired=True,
-        )
-        issue_certificate(
-            directory, "untrusted-client", untrusted_ca, ExtendedKeyUsageOID.CLIENT_AUTH
         )
         with processes(
             arguments.neo_binary.resolve(),

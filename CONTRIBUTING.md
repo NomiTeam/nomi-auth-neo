@@ -52,7 +52,7 @@ $ cargo test --test storage -- --ignored --test-threads=1
 Linux 安装 Nginx 后，可检查真实证书和机器人客户端：
 
 ```shell
-$ uv run --with httpx --with cryptography --with pydantic python scripts/test_mtls.py --neo-binary target/release/nomi-auth-neo --plugin-reference /path/to/nomi-auth-plugin
+$ uv run --with httpx --with cryptography --with pydantic python scripts/test_https.py --neo-binary target/release/nomi-auth-neo --plugin-reference /path/to/nomi-auth-plugin
 ```
 
 脚本在随机本地端口启动独立 Nginx，退出时清理临时进程、证书和数据。

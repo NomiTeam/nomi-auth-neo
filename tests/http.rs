@@ -23,112 +23,44 @@ use tower::ServiceExt;
 const SEEDED_PROFILE: &str = "12345678901234567890123456789012";
 
 #[tokio::test]
-async fn internal_mtls_attestation_is_local_exact_and_fail_closed() {
-    let fixture = Fixture::with_mtls(true).await;
-    for path in [
-        "/internal/v1/logins/verify",
-        "/%69nternal/v1/logins/verify",
-        "/internal/v1/logins/verify/",
-    ] {
-        for (peer, verification) in [
-            (None, Some("SUCCESS")),
-            (Some("192.0.2.1:1"), Some("SUCCESS")),
-            (Some("127.0.0.1:1"), None),
-            (Some("127.0.0.1:1"), Some("success")),
-            (Some("[::1]:1"), Some("FAILED")),
-        ] {
-            let mut attempt = authorized(json_request("POST", path, json!({})), &"x".repeat(32));
-            if let Some(peer) = peer {
-                attempt.extensions_mut().insert(axum::extract::ConnectInfo(
-                    peer.parse::<std::net::SocketAddr>().unwrap(),
-                ));
-            }
-            if let Some(verification) = verification {
-                attempt.headers_mut().insert(
-                    "x-nomi-client-verify",
-                    HeaderValue::from_str(verification).unwrap(),
-                );
-            }
-            let (status, body) = fixture.json(attempt).await;
-            assert_eq!(status, StatusCode::FORBIDDEN);
-            assert_eq!(body["code"], "MTLS_REQUIRED");
+async fn internal_requests_require_the_bot_secret_even_with_forged_headers() {
+    let fixture = Fixture::new().await;
+    for token in [None, Some("wrong-secret")] {
+        let mut attempt = json_request(
+            "POST",
+            "/internal/v1/logins/verify",
+            event("AAAA-BBBB-CCCC", "forged", false),
+        );
+        attempt
+            .headers_mut()
+            .insert("x-nomi-client-verify", HeaderValue::from_static("SUCCESS"));
+        attempt
+            .headers_mut()
+            .insert("x-forwarded-for", HeaderValue::from_static("127.0.0.1"));
+        if let Some(token) = token {
+            attempt = authorized(attempt, token);
         }
+        let (status, body) = fixture.json(attempt).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "UNAUTHORIZED");
     }
-    assert_eq!(
-        fixture
-            .json(request("GET", "/health", Body::empty()))
-            .await
-            .0,
-        StatusCode::OK
-    );
     let (status, login) = fixture
         .json(json_request("POST", "/api/v1/logins", json!({})))
         .await;
     assert_eq!(status, StatusCode::CREATED);
-    let mut verified = authorized(
-        json_request(
-            "POST",
-            "/internal/v1/logins/verify",
-            event(login["code"].as_str().unwrap(), "mtls", false),
-        ),
-        &"x".repeat(32),
-    );
-    verified.extensions_mut().insert(axum::extract::ConnectInfo(
-        "[::1]:1".parse::<std::net::SocketAddr>().unwrap(),
-    ));
-    verified
-        .headers_mut()
-        .insert("x-nomi-client-verify", HeaderValue::from_static("SUCCESS"));
-    let (status, result) = fixture.json(verified).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(result["status"], "AWAITING_NAME");
-    for duplicate in [false, true] {
-        let mut attempt = json_request(
-            "POST",
-            "/internal/v1/logins/verify",
-            event("unknown-code", "certificate-only", false),
-        );
-        attempt.extensions_mut().insert(axum::extract::ConnectInfo(
-            "127.0.0.1:1".parse::<std::net::SocketAddr>().unwrap(),
-        ));
-        attempt
-            .headers_mut()
-            .insert("x-nomi-client-verify", HeaderValue::from_static("SUCCESS"));
-        if duplicate {
-            attempt
-                .headers_mut()
-                .append("x-nomi-client-verify", HeaderValue::from_static("SUCCESS"));
-        }
-        let (status, body) = fixture.json(attempt).await;
-        assert_eq!(
-            status,
-            if duplicate {
-                StatusCode::FORBIDDEN
-            } else {
-                StatusCode::UNAUTHORIZED
-            }
-        );
-        assert_eq!(
-            body["code"],
-            if duplicate {
-                "MTLS_REQUIRED"
-            } else {
-                "UNAUTHORIZED"
-            }
-        );
-    }
-    fixture.close().await;
-
-    let legacy = Fixture::new().await;
-    let (status, body) = legacy
+    let (status, result) = fixture
         .json(authorized(
-            json_request("POST", "/internal/v1/logins/verify", json!({})),
+            json_request(
+                "POST",
+                "/internal/v1/logins/verify",
+                event(login["code"].as_str().unwrap(), "gateway", false),
+            ),
             &"x".repeat(32),
         ))
         .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_ne!(body["code"], "MTLS_REQUIRED");
-    legacy.close().await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["status"], "AWAITING_NAME");
+    fixture.close().await;
 }
 
 #[tokio::test]
@@ -172,17 +104,12 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
-        Self::with_mtls(false).await
-    }
-
-    async fn with_mtls(internal_mtls_required: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let settings = Settings {
             data_dir: directory.path().into(),
             bot_token: "x".repeat(32),
             bot_app_id: "app".into(),
             group_openid: "group".into(),
-            internal_mtls_required,
             ..Settings::default()
         };
         let app = App::new(settings).await.unwrap();

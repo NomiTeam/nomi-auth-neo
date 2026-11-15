@@ -10,7 +10,6 @@ pub struct Settings {
     pub bot_app_id: String,
     pub group_openid: String,
     pub group_label: String,
-    pub internal_mtls_required: bool,
     pub registration_ttl: i64,
     pub rename_cooldown: i64,
     pub game_token_ttl: i64,
@@ -36,7 +35,6 @@ impl Default for Settings {
             bot_app_id: String::new(),
             group_openid: String::new(),
             group_label: "服务器指定群".into(),
-            internal_mtls_required: false,
             registration_ttl: 300,
             rename_cooldown: 604800,
             game_token_ttl: 86400,
@@ -70,11 +68,6 @@ impl Settings {
             bot_app_id: read(values, "BOT_APP_ID", defaults.bot_app_id)?,
             group_openid: read(values, "GROUP_OPENID", defaults.group_openid)?,
             group_label: read(values, "GROUP_LABEL", defaults.group_label)?,
-            internal_mtls_required: read(
-                values,
-                "INTERNAL_MTLS_REQUIRED",
-                defaults.internal_mtls_required,
-            )?,
             registration_ttl: read(values, "REGISTRATION_TTL", defaults.registration_ttl)?,
             rename_cooldown: read(values, "RENAME_COOLDOWN", defaults.rename_cooldown)?,
             game_token_ttl: read(values, "GAME_TOKEN_TTL", defaults.game_token_ttl)?,
@@ -103,12 +96,33 @@ impl Settings {
     }
 
     pub fn validate(&self) -> Result<()> {
+        let address = url::Url::parse(&self.public_url).ok();
+        let valid_address = address.is_some_and(|address| {
+            matches!(address.scheme(), "http" | "https")
+                && address.host_str().is_some()
+                && address.username().is_empty()
+                && address.password().is_none()
+                && address.query().is_none()
+                && address.fragment().is_none()
+                && self.public_url.trim() == self.public_url
+        });
+        let timestamp = super::security::now();
         let valid = matches!(
             self.database_backend.as_str(),
             "sqlite" | "mysql" | "mariadb"
-        ) && self.bot_token.chars().count() >= 32
-            && !self.bot_app_id.is_empty()
-            && !self.group_openid.is_empty()
+        ) && valid_address
+            && self.bot_token.len() >= 32
+            && self.bot_token.bytes().all(|byte| byte.is_ascii_graphic())
+            && (1..=128).contains(&self.bot_app_id.chars().count())
+            && (1..=128).contains(&self.group_openid.chars().count())
+            && [
+                self.rename_cooldown,
+                self.game_token_ttl,
+                self.refresh_token_ttl,
+                self.management_token_ttl,
+            ]
+            .into_iter()
+            .all(|value| timestamp.checked_add(value).is_some())
             && (30..=1800).contains(&self.registration_ttl)
             && self.rename_cooldown >= 0
             && self.game_token_ttl >= 60
@@ -189,19 +203,60 @@ mod tests {
         let settings = Settings::from_values(&values).unwrap();
         assert_eq!(settings.database_backend, "sqlite");
         assert_eq!(settings.registration_ttl, 300);
-        assert!(!settings.internal_mtls_required);
-        values.insert("NOMI_INTERNAL_MTLS_REQUIRED".into(), "true".into());
-        assert!(
-            Settings::from_values(&values)
-                .unwrap()
-                .internal_mtls_required
-        );
-        values.insert("NOMI_INTERNAL_MTLS_REQUIRED".into(), "invalid".into());
-        assert!(Settings::from_values(&values).is_err());
-        values.remove("NOMI_INTERNAL_MTLS_REQUIRED");
         values.insert("NOMI_DATABASE_BACKEND".into(), "mariadb".into());
         assert!(Settings::from_values(&values).unwrap().is_mysql());
         values.insert("NOMI_DATABASE_BACKEND".into(), "unknown".into());
         assert!(Settings::from_values(&values).is_err());
+    }
+    #[test]
+    fn invalid_public_urls_and_overflowing_lifetimes_are_rejected() {
+        let base = Settings {
+            bot_token: "x".repeat(32),
+            bot_app_id: "app".into(),
+            group_openid: "group".into(),
+            ..Settings::default()
+        };
+        for address in [
+            "",
+            "missing-scheme",
+            "ftp://auth.test",
+            "https://user:password@auth.test",
+            "https://auth.test?query",
+            "https://auth.test#fragment",
+        ] {
+            let settings = Settings {
+                public_url: address.into(),
+                ..base.clone()
+            };
+            assert!(settings.validate().is_err(), "accepted {address}");
+        }
+        for settings in [
+            Settings {
+                game_token_ttl: i64::MAX,
+                ..base.clone()
+            },
+            Settings {
+                refresh_token_ttl: i64::MAX,
+                ..base.clone()
+            },
+            Settings {
+                management_token_ttl: i64::MAX,
+                ..base.clone()
+            },
+            Settings {
+                rename_cooldown: i64::MAX,
+                ..base.clone()
+            },
+            Settings {
+                bot_token: "密".repeat(32),
+                ..base.clone()
+            },
+            Settings {
+                group_openid: "x".repeat(129),
+                ..base.clone()
+            },
+        ] {
+            assert!(settings.validate().is_err());
+        }
     }
 }

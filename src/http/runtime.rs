@@ -91,21 +91,6 @@ pub fn source_address(request: &axum::extract::Request) -> String {
     peer.ip().to_string()
 }
 
-pub fn verified_internal_client(request: &axum::extract::Request) -> bool {
-    // TLS terminates at the local proxy. Its public listener must clear this header;
-    // only its certificate-verifying listener may replace it with the TLS result.
-    let local = request
-        .extensions()
-        .get::<ConnectInfo<std::net::SocketAddr>>()
-        .is_some_and(|ConnectInfo(peer)| peer.ip().is_loopback());
-    let mut values = request.headers().get_all("x-nomi-client-verify").iter();
-    local
-        && values
-            .next()
-            .is_some_and(|value| value.as_bytes() == b"SUCCESS")
-        && values.next().is_none()
-}
-
 pub fn scheme(request: &axum::extract::Request) -> &str {
     let trusted = request
         .extensions()
