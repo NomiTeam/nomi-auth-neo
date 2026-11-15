@@ -92,9 +92,38 @@ impl Service {
 }
 
 #[test]
-fn standalone_first_start_generates_configuration_and_exits_before_serving() {
+fn no_arguments_print_help_without_reading_or_creating_configuration() {
     let directory = tempfile::tempdir().unwrap();
     let output = run(directory.path(), &[]);
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("Commands:"));
+    assert!(help.contains("Start the authentication HTTP service"));
+    assert!(!directory.path().join(".env").exists());
+    assert!(!directory.path().join("data").exists());
+
+    fs::write(directory.path().join(".env"), "invalid settings").unwrap();
+    assert!(run(directory.path(), &[]).status.success());
+    assert!(!directory.path().join("data").exists());
+    for command in [
+        "serve",
+        "backup",
+        "restore",
+        "cleanup",
+        "enable",
+        "disable",
+        "migrate-database",
+        "test-login",
+    ] {
+        let output = run(directory.path(), &[command, "--help"]);
+        assert!(output.status.success(), "Missing help for {command}");
+    }
+}
+
+#[test]
+fn standalone_first_start_generates_configuration_and_exits_before_serving() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = run(directory.path(), &["serve"]);
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("Edit .env"));
     let configuration = directory.path().join(".env");
@@ -161,7 +190,7 @@ fn informational_and_maintenance_commands_do_not_generate_configuration() {
 #[test]
 fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
     let directory = tempfile::tempdir().unwrap();
-    assert!(run(directory.path(), &[]).status.success());
+    assert!(run(directory.path(), &["serve"]).status.success());
     let configuration = directory.path().join(".env");
     let edited = fs::read_to_string(&configuration)
         .unwrap()

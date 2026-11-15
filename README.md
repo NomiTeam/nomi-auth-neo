@@ -10,14 +10,14 @@
 
 [发布包](https://github.com/NomiTeam/nomi-auth-neo/releases)提供 Linux 和 Windows x86_64 版本，程序无需额外安装运行库。使用 MySQL/MariaDB 时，需要已有的数据库服务。
 
-下载并运行可执行文件。首次运行会在当前目录生成 `.env` 和随机机器人密钥，提示修改配置后退出。填写公网地址、应用 ID 和群 ID，将密钥同步到机器人配置，再次运行即可启动服务：
+下载可执行文件后运行 `serve`。首次执行会在当前目录生成 `.env` 和随机机器人密钥，提示修改配置后退出。填写公网地址、应用 ID 和群 ID，将密钥同步到机器人配置，再次执行 `serve` 启动服务：
 
 ```shell
 $ chmod +x nomi-auth-neo
 $ ./nomi-auth-neo serve --host 127.0.0.1 --port 8000
 ```
 
-Windows 使用 `nomi-auth-neo.exe`。配置从当前目录读取，环境变量优先。直接运行程序使用上述默认地址。
+Windows 使用 `nomi-auth-neo.exe`。配置从当前目录读取，环境变量优先。不带参数运行只显示帮助；只有 `serve` 启动服务。
 
 `NOMI_DATABASE_BACKEND` 可设为 `sqlite`、`mysql` 或 `mariadb`，其他字段见自动生成的 `.env`。
 

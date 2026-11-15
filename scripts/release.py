@@ -73,7 +73,7 @@ def smoke(binary: Path, version: str) -> None:
             NOMI_GROUP_OPENID="release-test-group",
         )
         initial = subprocess.run(
-            [str(binary)],
+            [str(binary), "serve"],
             check=False,
             cwd=temporary,
             env=environment,

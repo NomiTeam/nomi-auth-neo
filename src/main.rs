@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use nomi_auth_neo::{
     core::{Error, Settings, security::now},
     http::App,
@@ -16,32 +16,49 @@ struct Arguments {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Start the authentication HTTP service.
     Serve {
+        /// Local address to bind.
         #[arg(long, default_value = "127.0.0.1")]
         host: std::net::IpAddr,
+        /// Local TCP port to listen on.
         #[arg(long, default_value_t = 8000)]
         port: u16,
     },
+    /// Export a complete database, signing-key and skin snapshot.
     Backup {
+        /// New archive file to create.
         destination: PathBuf,
     },
+    /// Restore a snapshot into a new data directory.
     Restore {
+        /// Snapshot archive to read.
         archive: PathBuf,
+        /// New directory to create; existing directories are rejected.
         destination: PathBuf,
     },
+    /// Remove expired temporary records and retired skins.
     Cleanup,
+    /// Disable an account and revoke its active sessions.
     Disable {
+        /// Account ID, matched without case sensitivity.
         login_name: String,
     },
+    /// Re-enable a disabled account.
     Enable {
+        /// Account ID, matched without case sensitivity.
         login_name: String,
     },
+    /// Import a SQLite snapshot into an empty MySQL/MariaDB database.
     MigrateDatabase {
+        /// Source nomi-auth.sqlite3 file; the source is not changed.
         source: PathBuf,
     },
     /// Approve a launcher code for a local account without a QQ binding.
     TestLogin {
+        /// Unclaimed login code shown by the launcher.
         code: String,
+        /// New or existing account ID without a QQ binding.
         name: String,
     },
 }
@@ -54,10 +71,11 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let arguments = Arguments::parse();
-    let command = arguments.command.unwrap_or(Command::Serve {
-        host: std::net::Ipv4Addr::LOCALHOST.into(),
-        port: 8000,
-    });
+    let Some(command) = arguments.command else {
+        Arguments::command().print_help()?;
+        println!();
+        return Ok(());
+    };
     if let Command::Restore {
         archive,
         destination,
