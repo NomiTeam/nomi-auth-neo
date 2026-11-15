@@ -34,7 +34,7 @@ impl Default for Settings {
             bot_token: String::new(),
             bot_app_id: String::new(),
             group_openid: String::new(),
-            group_label: "服务器指定群".into(),
+            group_label: "Server Group".into(),
             registration_ttl: 300,
             rename_cooldown: 604800,
             game_token_ttl: 86400,
@@ -140,6 +140,54 @@ impl Settings {
             ));
         }
         Ok(())
+    }
+}
+
+/// Publish a private initial configuration without replacing an existing file.
+pub fn create_env(path: &std::path::Path) -> std::io::Result<bool> {
+    use std::io::Write;
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error),
+    }
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let configuration = format!(
+        r#"NOMI_PUBLIC_URL=http://127.0.0.1:8000
+NOMI_DATA_DIR=./data
+NOMI_BOT_TOKEN={bot_token}
+NOMI_BOT_APP_ID=
+NOMI_GROUP_OPENID=
+NOMI_GROUP_LABEL="Server Group"
+NOMI_REGISTRATION_TTL=300
+NOMI_RENAME_COOLDOWN=604800
+NOMI_GAME_TOKEN_TTL=86400
+NOMI_REFRESH_TOKEN_TTL=2592000
+NOMI_MANAGEMENT_TOKEN_TTL=3600
+
+# sqlite (default), mysql, or mariadb
+NOMI_DATABASE_BACKEND=sqlite
+NOMI_MYSQL_HOST=127.0.0.1
+NOMI_MYSQL_PORT=3306
+NOMI_MYSQL_DATABASE=nomi_auth
+NOMI_MYSQL_USER=nomi_auth
+NOMI_MYSQL_PASSWORD=
+# NOMI_MYSQL_UNIX_SOCKET=/run/mysqld/mysqld.sock
+# NOMI_MYSQL_SSL_CA=/path/to/ca.pem
+NOMI_DATABASE_TIMEOUT=10
+"#,
+        bot_token = super::security::secret(),
+    );
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+    temporary.write_all(configuration.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    match temporary.persist_noclobber(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error.error),
     }
 }
 

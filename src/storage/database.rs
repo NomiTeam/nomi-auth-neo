@@ -6,7 +6,7 @@ use std::{
 };
 
 use sqlx::{
-    Any, AnyConnection, AnyPool, Row,
+    Any, AnyConnection, AnyPool, Executor, Row,
     any::{AnyConnectOptions, AnyPoolOptions},
     pool::PoolConnection,
 };
@@ -136,7 +136,8 @@ impl Database {
         } else {
             "BEGIN IMMEDIATE"
         };
-        sqlx::query(begin).execute(&mut *connection).await?;
+        // MySQL transaction commands must use the text protocol, not prepared statements.
+        connection.execute(begin).await?;
         Ok(WriteTransaction {
             connection,
             _guard: guard,
@@ -193,7 +194,7 @@ impl WriteTransaction {
     }
 
     pub async fn commit(mut self) -> Result<()> {
-        sqlx::query("COMMIT").execute(&mut *self.connection).await?;
+        self.connection.execute("COMMIT").await?;
         if self.mysql {
             sqlx::query("SELECT RELEASE_LOCK(?)")
                 .bind(&self.lock_name)

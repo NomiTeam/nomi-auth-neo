@@ -69,7 +69,7 @@ $ git push origin v0.1.0
 
 工作流核对版本和 main 归属，编译并启动检查 Linux musl 与 Windows MSVC 程序。Windows 静态链接 CRT，并检查额外运行库依赖。
 
-发布名与 tag 相同，附件为 Linux 的 tar.gz 和 Windows 的 zip。包内程序名不带版本号，包含配置示例和对应平台的许可证。两包上传完成后才公开 release，已公开版本不会自动覆盖。
+发布名与 tag 相同，附件为 Linux 的 tar.gz 和 Windows 的 zip。包内程序名不带版本号，包含使用说明和对应平台的许可证。两包上传完成后才公开 release，已公开版本不会自动覆盖。
 
 PR 和手动运行生成测试包，tag 推送执行正式发布。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
 

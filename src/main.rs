@@ -61,6 +61,14 @@ async fn main() -> anyhow::Result<()> {
         println!("Restored data directory: {}", destination.display());
         return Ok(());
     }
+    let generated = matches!(&command, Command::Serve { .. })
+        && nomi_auth_neo::core::config::create_env(std::path::Path::new(".env"))?;
+    if generated {
+        println!(
+            "Created .env with default settings and a random bot secret. Edit .env, then run the program again."
+        );
+        return Ok(());
+    }
     let settings = Settings::from_env()?;
     match command {
         Command::Serve { host, port } => serve(settings, SocketAddr::new(host, port)).await?,
