@@ -128,6 +128,27 @@ async fn count(database: &Database, table: &str) -> i64 {
 
 async fn exercise_delete(auth: &Auth, database: &Arc<Database>) {
     let fixture = seed(auth, database).await;
+    let admin = Admin::new(database.clone());
+    let mut before = Vec::new();
+    for table in transfer::TABLES {
+        before.push(count(database, table).await);
+    }
+    let error = admin.delete("deleteme").await.unwrap_err();
+    assert_eq!(error.code, "ACCOUNT_ENABLED");
+    for (table, expected) in transfer::TABLES.iter().zip(before) {
+        assert_eq!(count(database, table).await, expected);
+    }
+    let current = request(
+        "GET",
+        "/api/v1/game/profile",
+        fixture.session["game"]["accessToken"].as_str(),
+        json!({}),
+    );
+    assert!(auth.handle(&current).await.is_ok());
+    Admin::new(database.clone())
+        .set_enabled("DeleteMe", false)
+        .await
+        .unwrap();
     assert_eq!(
         Admin::new(database.clone())
             .delete("deleteme")
@@ -216,6 +237,10 @@ async fn deletion_cleans_bound_accounts_but_preserves_other_accounts_and_shared_
 
 async fn exercise_rollback(auth: &Auth, database: &Arc<Database>) {
     let fixture = seed(auth, database).await;
+    Admin::new(database.clone())
+        .set_enabled("DeleteMe", false)
+        .await
+        .unwrap();
     let mut before = Vec::new();
     for table in transfer::TABLES {
         before.push(count(database, table).await);
