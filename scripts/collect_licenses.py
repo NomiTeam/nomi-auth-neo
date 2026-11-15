@@ -2,12 +2,17 @@
 Collect dependency notices from the locked Cargo sources for binary distribution.
 """
 
+import argparse
 import json
 import subprocess
 from pathlib import Path
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--target", default="x86_64-unknown-linux-musl")
+    parser.add_argument("--output", type=Path, default=Path("THIRD_PARTY_NOTICES.md"))
+    arguments = parser.parse_args()
     result = subprocess.run(
         [
             "cargo",
@@ -16,10 +21,11 @@ def main() -> None:
             "--format-version",
             "1",
             "--filter-platform",
-            "x86_64-unknown-linux-musl",
+            arguments.target,
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     )
     metadata = json.loads(result.stdout)
@@ -60,7 +66,8 @@ def main() -> None:
             sections.append(
                 f"### {path.name}\n\n```text\n{path.read_text(encoding='utf-8')}\n```\n"
             )
-    Path("THIRD_PARTY_NOTICES.md").write_text("\n".join(sections), encoding="utf-8")
+    arguments.output.parent.mkdir(parents=True, exist_ok=True)
+    arguments.output.write_text("\n".join(sections), encoding="utf-8")
 
 
 if __name__ == "__main__":

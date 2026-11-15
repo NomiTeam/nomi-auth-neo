@@ -15,7 +15,7 @@ chmod +x nomi-auth-neo
 
 直接运行 `./nomi-auth-neo` 使用同样的默认地址。配置从当前目录的 `.env` 读取，环境变量优先，沿用 `NOMI_*` 名称。
 
-公网部署机器人的内部接口时，按 [mTLS 配置](deploy/MTLS.md) 配置独立入口，并启用 `NOMI_INTERNAL_MTLS_REQUIRED=true`。示例配置已开启；缺少证书验证的内部请求会被拒绝。旧配置未设置该项时维持原行为。
+公网部署机器人的内部接口时，按 [mTLS 配置](deploy/MTLS.md) 配置同域名、同端口的路径验证，并启用 `NOMI_INTERNAL_MTLS_REQUIRED=true`。示例配置已开启；缺少证书验证的内部请求会被拒绝。旧配置未设置该项时维持原行为。
 
 接口说明见 [API.md](API.md)。健康检查为 `/health`，认证根路径为 `/api/yggdrasil/`。不提供 HTML 页面、在线文档或 OpenAPI JSON。
 
@@ -72,6 +72,8 @@ cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
 ```
 
 输出为 `target/x86_64-unknown-linux-musl/release/nomi-auth-neo`。应在 Linux 上确认 `file` 显示静态链接，`readelf` 没有动态依赖，并运行接口测试；不能只以编译成功判断兼容性。
+
+GitHub 发布工作流支持 Linux x86_64 静态程序和 Windows x86_64 程序。`main` 历史中的 `v版本号` tag 会触发发布，tag 必须与 Cargo 包版本一致；PR 和手动运行只构建测试包。操作步骤见 [开发指南](CONTRIBUTING.md)。
 
 `deploy/` 提供 systemd 示例，按实际目录和服务用户修改。生产环境不需要开发工具或容器。
 

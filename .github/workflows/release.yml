@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s tests -p test_release.py -v
+      - name: Validate package version and tag ancestry
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$EVENT_NAME" == push ]]; then
+            git fetch origin main:refs/remotes/origin/main
+            python scripts/release.py validate --tag "$RELEASE_TAG"
+          elif [[ "$EVENT_NAME" == workflow_dispatch && "$RELEASE_REF" != refs/heads/main ]]; then
+            echo 'Manual builds must run on main' >&2
+            exit 1
+          else
+            python scripts/release.py validate
+          fi
+
+  release-build:
+    needs: release-validation
+    name: release-build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-musl
+            binary: nomi-auth-neo
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            binary: nomi-auth-neo.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build Linux static executable
+        if: runner.os == 'Linux'
+        run: |
+          pip install cargo-zigbuild
+          cargo zigbuild --release --locked --target x86_64-unknown-linux-musl
+          binary=target/x86_64-unknown-linux-musl/release/nomi-auth-neo
+          file "$binary" | grep -E 'statically linked|static-pie linked'
+          if readelf -l "$binary" | grep INTERP; then exit 1; fi
+          if readelf -d "$binary" | grep NEEDED; then exit 1; fi
+      - name: Test and build Windows executable with static CRT
+        if: runner.os == 'Windows'
+        run: |
+          cargo test --locked --target x86_64-pc-windows-msvc --all-targets
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/check_windows_runtime.ps1 -Binary target/x86_64-pc-windows-msvc/release/nomi-auth-neo.exe
+      - name: Smoke-test packaged executable
+        run: python scripts/release.py smoke target/${{ matrix.target }}/release/${{ matrix.binary }}
+      - name: Collect platform dependency notices
+        run: python scripts/collect_licenses.py --target ${{ matrix.target }} --output artifacts/THIRD_PARTY_NOTICES.md
+      - name: Package executable and configuration examples
+        run: >-
+          python scripts/release.py package target/${{ matrix.target }}/release/${{ matrix.binary }}
+          --platform ${{ matrix.platform }} --notices artifacts/THIRD_PARTY_NOTICES.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-package-${{ matrix.platform }}
+          path: artifacts/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [release-validation, release-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      PRERELEASE: ${{ needs.release-validation.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-package-*
+          merge-multiple: true
+          path: packages
+      - name: Publish both completed packages
+        run: |
+          test -s packages/nomi-auth-neo-linux-x86_64.tar.gz
+          test -s packages/nomi-auth-neo-windows-x86_64.zip
+          if state=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [[ "$state" != true ]]; then
+              echo 'This release is already published; existing files will not be overwritten' >&2
+              exit 1
+            fi
+          else
+            flags=()
+            if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --draft --generate-notes "${flags[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" packages/* --clobber
+          if [[ "$PRERELEASE" == true ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease=false --latest
+          fi
