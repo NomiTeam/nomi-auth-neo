@@ -1,4 +1,4 @@
-"""Test the shipped NGINX templates with temporary TLS identities and real HTTP."""
+"""Test HTTPS integration with temporary TLS identities and an isolated proxy."""
 
 import argparse
 import asyncio
@@ -102,12 +102,23 @@ def available_ports():
         )
 
 
-def nginx_configuration(directory, templates, ports):
+def nginx_configuration(directory, ports):
     backend, gateway, _ = ports
-    block = (templates / "nginx.conf").read_text(encoding="utf-8")
-    block = block.replace("listen 443 ssl;", f"listen 127.0.0.1:{gateway} ssl;")
-    block = block.replace("/etc/ssl/nomi/", str(directory) + "/")
-    block = block.replace("127.0.0.1:8000", f"127.0.0.1:{backend}")
+    block = f"""server {{
+    listen 127.0.0.1:{gateway} ssl;
+    server_name localhost;
+    ssl_certificate {directory}/server.pem;
+    ssl_certificate_key {directory}/server-key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    location / {{
+        proxy_pass http://127.0.0.1:{backend};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header Forwarded "";
+    }}
+}}
+"""
     configuration = (
         f"pid {directory}/nginx.pid;\nerror_log {directory}/nginx-error.log warn;\n"
         "worker_processes 1;\nevents { worker_connections 64; }\nhttp {\n"
@@ -125,7 +136,7 @@ def tls_context(directory):
 
 
 @contextmanager
-def processes(binary, nginx, directory, templates):
+def processes(binary, nginx, directory):
     ports = available_ports()
     environment = {
         key: value for key, value in os.environ.items() if not key.startswith("NOMI_")
@@ -141,7 +152,7 @@ def processes(binary, nginx, directory, templates):
     )
     # The isolated service receives its complete configuration through environment values.
     (directory / ".env").write_text("", encoding="utf-8")
-    configuration = nginx_configuration(directory, templates, ports)
+    configuration = nginx_configuration(directory, ports)
     subprocess.run(
         [str(nginx), "-p", str(directory), "-c", str(configuration), "-t"],
         check=True,
@@ -425,9 +436,6 @@ def main():
     parser.add_argument("--neo-binary", type=Path, required=True)
     parser.add_argument("--nginx", type=Path, default=Path("/usr/sbin/nginx"))
     parser.add_argument("--plugin-reference", type=Path)
-    parser.add_argument(
-        "--templates", type=Path, default=Path(__file__).resolve().parents[1] / "deploy"
-    )
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="nomi-https-") as temporary:
         directory = Path(temporary)
@@ -439,7 +447,6 @@ def main():
             arguments.neo_binary.resolve(),
             arguments.nginx.resolve(),
             directory,
-            arguments.templates.resolve(),
         ) as ports:
             checks = exercise(directory, ports)
             if arguments.plugin_reference is not None:

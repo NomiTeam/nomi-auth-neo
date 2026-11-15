@@ -79,8 +79,6 @@ class ReleaseTests(unittest.TestCase):
         ):
             (self.directory / name).write_text("example")
         (self.directory / ".env").write_text("must not ship")
-        (self.directory / "deploy").mkdir()
-        (self.directory / "deploy/nginx.conf").write_text("example")
         for platform in release.PLATFORMS:
             output = release.package(
                 self.directory,
@@ -96,13 +94,14 @@ class ReleaseTests(unittest.TestCase):
                 with tarfile.open(output) as archive:
                     names = archive.getnames()
                     self.assertEqual(archive.getmember("nomi-auth-neo").mode, 0o755)
-                    self.assertIn("deploy/nginx.conf", names)
             self.assertIn(release.PLATFORMS[platform], names)
             self.assertIn("THIRD_PARTY_NOTICES.md", names)
             self.assertNotIn(".env.example", names)
             self.assertIn("CONTRIBUTING.md", names)
             self.assertNotIn(".env", names)
             self.assertNotIn("Cargo.toml", names)
+            self.assertFalse(any(name.startswith("deploy/") for name in names))
+            self.assertFalse(any(name.endswith((".py", ".ps1")) for name in names))
 
 
 if __name__ == "__main__":

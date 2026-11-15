@@ -23,19 +23,7 @@ Windows 使用 `nomi-auth-neo.exe`。配置从当前目录读取，环境变量�
 
 > 替换程序前请停止服务并备份整个数据目录。数据库、`texture-signing.pem` 和 `textures/` 应一起保留，不要让多个服务进程同时写入。
 
-## Nginx
-
-参考 [nginx.conf](deploy/nginx.conf)，修改域名、服务端证书和后端地址，再检查配置：
-
-```shell
-$ nginx -t
-```
-
-检查通过后重载。Rust 只监听本机 HTTP，Nginx 提供 HTTPS；公开接口和 `/internal/` 共用同一域名及 443 端口。内部接口校验独立机器人密钥、应用 ID 和群 ID。
-
-将机器人服务地址设为该 HTTPS 地址，并将 `NOMI_BOT_API_TOKEN` 设置为服务端的 `NOMI_BOT_TOKEN`。密钥使用至少 32 位随机可见 ASCII 字符，仅保存在服务端和机器人配置中。
-
-机器人默认使用系统信任链校验服务端证书和主机名。使用自签 CA 时，填写 `NOMI_TLS_CA_CERT=/path/to/server-ca.pem`。
+公网使用时建议通过 HTTPS 接入。
 
 ## 维护
 

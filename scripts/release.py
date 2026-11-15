@@ -154,12 +154,6 @@ def package(
         "API.md": directory / "API.md",
         "THIRD_PARTY_NOTICES.md": notices,
     }
-    for path in sorted((directory / "deploy").iterdir()):
-        if path.is_file() and (
-            path.suffix == ".conf"
-            or (platform == "linux-x86_64" and path.suffix == ".service")
-        ):
-            files[f"deploy/{path.name}"] = path
     for path in files.values():
         if not path.is_file():
             raise FileNotFoundError(path)
