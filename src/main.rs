@@ -59,11 +59,11 @@ enum Command {
         /// Source nomi-auth.sqlite3 file; the source is not changed.
         source: PathBuf,
     },
-    /// Approve a launcher code for a local account without a QQ binding.
-    TestLogin {
+    /// Approve a launcher code for an existing account, or create a new account.
+    Login {
         /// Unclaimed login code shown by the launcher.
         code: String,
-        /// New or existing account ID without a QQ binding.
+        /// New or existing account ID.
         name: String,
     },
 }
@@ -139,10 +139,10 @@ async fn maintain(settings: Settings, command: Command) -> anyhow::Result<()> {
             maintenance::import_sqlite(&source, &database).await?;
             println!("Migration verified; source unchanged.");
         }
-        Command::TestLogin { code, name } => {
+        Command::Login { code, name } => {
             let auth = Auth::new(std::sync::Arc::new(settings), database.clone());
-            let profile = auth.test_login(&code, &name).await?;
-            println!("Test login approved: {} ({})", profile.name, profile.uuid);
+            let profile = auth.login(&code, &name).await?;
+            println!("Login approved: {} ({})", profile.name, profile.uuid);
         }
         Command::Disable { login_name } => {
             Admin::new(database).set_enabled(&login_name, false).await?;

@@ -114,7 +114,7 @@ fn no_arguments_print_help_without_reading_or_creating_configuration() {
         "disable",
         "delete",
         "migrate-database",
-        "test-login",
+        "login",
     ] {
         let output = run(directory.path(), &[command, "--help"]);
         assert!(output.status.success(), "Missing help for {command}");
@@ -205,14 +205,14 @@ fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
 
     let output = run(
         directory.path(),
-        &["test-login", login["code"].as_str().unwrap(), "AdminTest"],
+        &["login", login["code"].as_str().unwrap(), "AdminTest"],
     );
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("Test login approved: AdminTest"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Login approved: AdminTest"));
     assert_eq!(fs::read_to_string(configuration).unwrap(), edited);
 
     let request = format!(
@@ -225,12 +225,12 @@ fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
     let session: serde_json::Value =
         serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
     assert_eq!(session["game"]["selectedProfile"]["name"], "AdminTest");
-    let response = service.request("POST /api/v1/test-login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+    let response = service.request("POST /api/v1/login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
     assert!(response.starts_with("HTTP/1.1 404"));
     assert!(
         !run(
             directory.path(),
-            &["test-login", login["code"].as_str().unwrap(), "AnotherTest"]
+            &["login", login["code"].as_str().unwrap(), "AnotherTest"]
         )
         .status
         .success()

@@ -65,7 +65,7 @@ async fn clear_test_database(database: &Database) {
 async fn exercise_login(auth: &Auth, database: &Database) {
     let login = begin(auth).await;
     let profile = auth
-        .test_login(login["code"].as_str().unwrap(), "LocalTest")
+        .login(login["code"].as_str().unwrap(), "LocalTest")
         .await
         .unwrap();
     assert_eq!(count(database, "accounts").await, 1);
@@ -90,13 +90,13 @@ async fn exercise_login(auth: &Auth, database: &Database) {
 
     let next = begin(auth).await;
     let reused = auth
-        .test_login(next["code"].as_str().unwrap(), "localtest")
+        .login(next["code"].as_str().unwrap(), "localtest")
         .await
         .unwrap();
     assert_eq!(reused.uuid, profile.uuid);
     assert_eq!(count(database, "accounts").await, 1);
     let created: i64 =
-        sqlx::query("SELECT COUNT(*) FROM audit WHERE action='test_account_created'")
+        sqlx::query("SELECT COUNT(*) FROM audit WHERE action='admin_account_created'")
             .fetch_one(database.pool())
             .await
             .unwrap()
@@ -106,7 +106,7 @@ async fn exercise_login(auth: &Auth, database: &Database) {
 }
 
 #[tokio::test]
-async fn local_test_login_uses_existing_launcher_flow_and_preserves_uuid() {
+async fn admin_login_uses_existing_launcher_flow_and_preserves_uuid() {
     let (_directory, auth, database) = service().await;
     exercise_login(&auth, &database).await;
 }
@@ -114,10 +114,10 @@ async fn local_test_login_uses_existing_launcher_flow_and_preserves_uuid() {
 #[tokio::test]
 async fn invalid_expired_cancelled_and_claimed_codes_create_no_accounts() {
     let (_directory, auth, database) = service().await;
-    assert!(auth.test_login("missing", "ValidTest").await.is_err());
+    assert!(auth.login("missing", "ValidTest").await.is_err());
     let invalid = begin(&auth).await;
     assert!(
-        auth.test_login(invalid["code"].as_str().unwrap(), "bad name")
+        auth.login(invalid["code"].as_str().unwrap(), "bad name")
             .await
             .is_err()
     );
@@ -135,7 +135,7 @@ async fn invalid_expired_cancelled_and_claimed_codes_create_no_accounts() {
             .await
             .unwrap();
         assert!(
-            auth.test_login(login["code"].as_str().unwrap(), "NeverCreated")
+            auth.login(login["code"].as_str().unwrap(), "NeverCreated")
                 .await
                 .is_err()
         );
@@ -154,7 +154,7 @@ async fn invalid_expired_cancelled_and_claimed_codes_create_no_accounts() {
     .await
     .unwrap();
     assert!(
-        auth.test_login(cancelled["code"].as_str().unwrap(), "NeverCreated")
+        auth.login(cancelled["code"].as_str().unwrap(), "NeverCreated")
             .await
             .is_err()
     );
@@ -162,12 +162,10 @@ async fn invalid_expired_cancelled_and_claimed_codes_create_no_accounts() {
     assert_eq!(count(&database, "audit").await, 0);
 }
 
-#[tokio::test]
-async fn qq_accounts_and_disabled_test_accounts_cannot_be_approved() {
-    let (_directory, auth, database) = service().await;
-    let first = begin(&auth).await;
+async fn exercise_bound_accounts(auth: &Auth, database: &Arc<Database>) {
+    let first = begin(auth).await;
     let profile = auth
-        .test_login(first["code"].as_str().unwrap(), "Reserved")
+        .login(first["code"].as_str().unwrap(), "Reserved")
         .await
         .unwrap();
     sqlx::query("INSERT INTO identities VALUES(?,?,?,?)")
@@ -178,25 +176,20 @@ async fn qq_accounts_and_disabled_test_accounts_cannot_be_approved() {
         .execute(database.pool())
         .await
         .unwrap();
-    let login = begin(&auth).await;
-    assert_eq!(
-        auth.test_login(login["code"].as_str().unwrap(), "RESERVED")
-            .await
-            .err()
-            .unwrap()
-            .code,
-        "ACCOUNT_BOUND"
-    );
-    sqlx::query("DELETE FROM identities")
-        .execute(database.pool())
+    let login = begin(auth).await;
+    let existing = auth
+        .login(login["code"].as_str().unwrap(), "RESERVED")
         .await
         .unwrap();
+    assert_eq!(existing.uuid, profile.uuid);
+    assert_eq!(count(database, "identities").await, 1);
+    let login = begin(auth).await;
     sqlx::query("UPDATE accounts SET status='disabled'")
         .execute(database.pool())
         .await
         .unwrap();
     assert_eq!(
-        auth.test_login(login["code"].as_str().unwrap(), "Reserved")
+        auth.login(login["code"].as_str().unwrap(), "Reserved")
             .await
             .err()
             .unwrap()
@@ -213,6 +206,22 @@ async fn qq_accounts_and_disabled_test_accounts_cannot_be_approved() {
         .await
         .unwrap();
     assert_eq!(status.body.unwrap()["status"], "PENDING");
+    nomi_auth_neo::services::Admin::new(database.clone())
+        .set_enabled("Reserved", true)
+        .await
+        .unwrap();
+    let enabled = auth
+        .login(login["code"].as_str().unwrap(), "Reserved")
+        .await
+        .unwrap();
+    assert_eq!(enabled.uuid, profile.uuid);
+    assert_eq!(count(database, "identities").await, 1);
+}
+
+#[tokio::test]
+async fn qq_accounts_keep_their_binding_and_disabled_accounts_require_enable() {
+    let (_directory, auth, database) = service().await;
+    exercise_bound_accounts(&auth, &database).await;
 }
 
 #[tokio::test]
@@ -221,8 +230,8 @@ async fn concurrent_admin_approvals_cannot_reassign_one_code() {
     let login = begin(&auth).await;
     let code = login["code"].as_str().unwrap();
     let (first, second) = tokio::join!(
-        auth.test_login(code, "FirstTest"),
-        auth.test_login(code, "SecondTest")
+        auth.login(code, "FirstTest"),
+        auth.login(code, "SecondTest")
     );
     assert_ne!(first.is_ok(), second.is_ok());
     assert_eq!(count(&database, "accounts").await, 1);
@@ -230,7 +239,7 @@ async fn concurrent_admin_approvals_cannot_reassign_one_code() {
 
 #[tokio::test]
 #[ignore = "requires an isolated NOMI_TEST_MYSQL_* database; run with --ignored --test-threads=1"]
-async fn mysql_test_login_roundtrip() {
+async fn mysql_admin_login_roundtrip() {
     let directory = tempfile::tempdir().unwrap();
     let database_name = std::env::var("NOMI_TEST_MYSQL_DATABASE").unwrap();
     assert!(database_name.starts_with("nomi_auth_test_"));
@@ -251,6 +260,7 @@ async fn mysql_test_login_roundtrip() {
     clear_test_database(&database).await;
     let auth = Auth::new(Arc::new(settings), database.clone());
     exercise_login(&auth, &database).await;
+    exercise_bound_accounts(&auth, &database).await;
     clear_test_database(&database).await;
     database.pool().close().await;
 }

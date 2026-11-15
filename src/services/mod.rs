@@ -1,12 +1,12 @@
 mod accounts;
 mod admin;
+mod admin_login;
 pub mod game;
 mod logins;
 mod models;
 mod profiles;
 mod sessions;
 pub mod skins;
-mod testing;
 
 use std::sync::Arc;
 
@@ -35,8 +35,8 @@ pub struct Auth {
 
 impl Auth {
     /// Local administration only: this operation has no HTTP route.
-    pub async fn test_login(&self, code: &str, name: &str) -> Result<Profile> {
-        testing::TestAccounts::new(
+    pub async fn login(&self, code: &str, name: &str) -> Result<Profile> {
+        admin_login::AdminLogin::new(
             self.database.clone(),
             self.accounts.clone(),
             self.logins.clone(),

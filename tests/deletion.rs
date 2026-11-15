@@ -32,7 +32,7 @@ async fn begin(auth: &Auth) -> Value {
 async fn create(auth: &Auth, name: &str) -> (Profile, Value) {
     let login = begin(auth).await;
     let profile = auth
-        .test_login(login["code"].as_str().unwrap(), name)
+        .login(login["code"].as_str().unwrap(), name)
         .await
         .unwrap();
     let mut claim = request(
@@ -196,7 +196,7 @@ async fn exercise_delete(auth: &Auth, database: &Arc<Database>) {
 
     let login = begin(auth).await;
     let recreated = auth
-        .test_login(login["code"].as_str().unwrap(), "DeleteMe")
+        .login(login["code"].as_str().unwrap(), "DeleteMe")
         .await
         .unwrap();
     assert_ne!(recreated.uuid, fixture.target.uuid);
