@@ -73,7 +73,7 @@ $ git push origin v0.1.0
 
 PR 只运行一组格式、Clippy、Rust 和打包脚本测试；新提交会取消旧检查，合并 main 不重复运行。
 
-MySQL/MariaDB、Linux 静态构建和 HTTPS 联调通过 Integration 工作流手动运行。Release 仅支持 main 手动构建或 tag 发布，不在 PR 中构建 Linux/Windows 发布包。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
+MySQL、Linux 静态构建和 HTTPS 联调通过 Integration 工作流手动运行。Release 仅支持 main 手动构建或 tag 发布，不在 PR 中构建 Linux/Windows 发布包。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
 
 ---
 
