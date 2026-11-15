@@ -15,6 +15,8 @@ chmod +x nomi-auth-neo
 
 直接运行 `./nomi-auth-neo` 使用同样的默认地址。配置从当前目录的 `.env` 读取，环境变量优先，沿用 `NOMI_*` 名称。
 
+公网部署机器人的内部接口时，按 [mTLS 配置](deploy/MTLS.md) 配置独立入口，并启用 `NOMI_INTERNAL_MTLS_REQUIRED=true`。示例配置已开启；缺少证书验证的内部请求会被拒绝。旧配置未设置该项时维持原行为。
+
 接口说明见 [API.md](API.md)。健康检查为 `/health`，认证根路径为 `/api/yggdrasil/`。不提供 HTML 页面、在线文档或 OpenAPI JSON。
 
 ## 数据兼容

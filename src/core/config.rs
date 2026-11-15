@@ -10,6 +10,7 @@ pub struct Settings {
     pub bot_app_id: String,
     pub group_openid: String,
     pub group_label: String,
+    pub internal_mtls_required: bool,
     pub registration_ttl: i64,
     pub rename_cooldown: i64,
     pub game_token_ttl: i64,
@@ -35,6 +36,7 @@ impl Default for Settings {
             bot_app_id: String::new(),
             group_openid: String::new(),
             group_label: "服务器指定群".into(),
+            internal_mtls_required: false,
             registration_ttl: 300,
             rename_cooldown: 604800,
             game_token_ttl: 86400,
@@ -68,6 +70,11 @@ impl Settings {
             bot_app_id: read(values, "BOT_APP_ID", defaults.bot_app_id)?,
             group_openid: read(values, "GROUP_OPENID", defaults.group_openid)?,
             group_label: read(values, "GROUP_LABEL", defaults.group_label)?,
+            internal_mtls_required: read(
+                values,
+                "INTERNAL_MTLS_REQUIRED",
+                defaults.internal_mtls_required,
+            )?,
             registration_ttl: read(values, "REGISTRATION_TTL", defaults.registration_ttl)?,
             rename_cooldown: read(values, "RENAME_COOLDOWN", defaults.rename_cooldown)?,
             game_token_ttl: read(values, "GAME_TOKEN_TTL", defaults.game_token_ttl)?,
@@ -182,6 +189,16 @@ mod tests {
         let settings = Settings::from_values(&values).unwrap();
         assert_eq!(settings.database_backend, "sqlite");
         assert_eq!(settings.registration_ttl, 300);
+        assert!(!settings.internal_mtls_required);
+        values.insert("NOMI_INTERNAL_MTLS_REQUIRED".into(), "true".into());
+        assert!(
+            Settings::from_values(&values)
+                .unwrap()
+                .internal_mtls_required
+        );
+        values.insert("NOMI_INTERNAL_MTLS_REQUIRED".into(), "invalid".into());
+        assert!(Settings::from_values(&values).is_err());
+        values.remove("NOMI_INTERNAL_MTLS_REQUIRED");
         values.insert("NOMI_DATABASE_BACKEND".into(), "mariadb".into());
         assert!(Settings::from_values(&values).unwrap().is_mysql());
         values.insert("NOMI_DATABASE_BACKEND".into(), "unknown".into());
