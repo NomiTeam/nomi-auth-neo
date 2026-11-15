@@ -106,6 +106,7 @@ fn standalone_first_start_generates_configuration_and_exits_before_serving() {
     assert!(!values["NOMI_BOT_TOKEN"].contains("replace"));
     assert_eq!(values["NOMI_BOT_APP_ID"], "");
     assert_eq!(values["NOMI_GROUP_OPENID"], "");
+    assert_eq!(values["NOMI_GROUP_LABEL"], "Server Group");
     assert!(!directory.path().join("data").exists());
     #[cfg(unix)]
     {
