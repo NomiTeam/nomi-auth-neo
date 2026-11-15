@@ -8,3 +8,11 @@
 __pycache__/
 /.reference/
 /.tools-*.jsonl
+
+*.pem
+
+*.key
+
+*.p12
+
+*.pfx
