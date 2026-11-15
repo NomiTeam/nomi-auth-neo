@@ -124,8 +124,8 @@ impl Game {
             .ok()
             .and_then(|address| address.host_str().map(str::to_owned));
         Ok(Reply::ok(json!({
-            "meta": {"serverName":"Nomi", "implementationName":"Nomi Auth",
-                "implementationVersion":"0.1.0", "feature.non_email_login":true},
+            "meta": {"serverName":"Nomi", "implementationName":"Nomi Auth Neo",
+                "implementationVersion":env!("CARGO_PKG_VERSION"), "feature.non_email_login":true},
             "skinDomains":[hostname], "signaturePublickey":self.public_key,
         })))
     }

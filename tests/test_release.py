@@ -70,7 +70,14 @@ class ReleaseTests(unittest.TestCase):
             release.validate(self.directory, "v0.1.0")
 
     def test_packages_exclude_real_configuration_and_keep_stable_binary_names(self):
-        for name in (".env.example", "README.md", "API.md", "notices.md", "binary"):
+        for name in (
+            ".env.example",
+            "README.md",
+            "CONTRIBUTING.md",
+            "API.md",
+            "notices.md",
+            "binary",
+        ):
             (self.directory / name).write_text("example")
         (self.directory / ".env").write_text("must not ship")
         (self.directory / "deploy").mkdir()
@@ -94,6 +101,7 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn(release.PLATFORMS[platform], names)
             self.assertIn("THIRD_PARTY_NOTICES.md", names)
             self.assertIn(".env.example", names)
+            self.assertIn("CONTRIBUTING.md", names)
             self.assertNotIn(".env", names)
             self.assertNotIn("Cargo.toml", names)
 

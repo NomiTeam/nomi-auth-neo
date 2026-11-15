@@ -62,12 +62,19 @@ impl Accounts {
             "management" => self.settings.management_token_ttl,
             _ => return Err(Error::internal()),
         };
+        let expires_at = options
+            .issued_at
+            .unwrap_or_else(now)
+            .checked_add(lifetime)
+            .ok_or_else(|| {
+                Error::problem("INVALID_CONFIG", "Token lifetime is out of range", 500)
+            })?;
         sqlx::query("INSERT INTO tokens VALUES(?,?,?,?,?)")
             .bind(digest(&token))
             .bind(account_id)
             .bind(kind)
             .bind(options.client_token)
-            .bind(options.issued_at.unwrap_or_else(now) + lifetime)
+            .bind(expires_at)
             .execute(connection)
             .await?;
         Ok(token)

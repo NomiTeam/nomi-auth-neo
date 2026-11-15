@@ -1,10 +1,10 @@
 # 开发指南
 
-请不要将改动直接 push 到 main，而是在 dev 开发并创建 PR。提交信息和 PR 描述都需要 `Co-authored-by` 共同作者署名。
+请不要将改动直接 push 到 main，而是在 dev 开发并创建 PR。
 
 ## 环境
 
-安装 Rust stable、rustfmt、Clippy 和 C 编译器。辅助检查使用 Python 3.13 和 uv；运行服务不需要这些开发工具。
+安装 Rust stable、rustfmt、Clippy 和 C 编译器。辅助检查使用 Python 3.13 和 uv。
 
 ```shell
 $ cargo build
@@ -34,8 +34,6 @@ $ uvx ruff check scripts tests/test_release.py
 $ uvx ruff format --check scripts tests/test_release.py
 ```
 
-代码和注释使用英文，文档使用中文。每次提交只处理一个功能，用简短英文说明改动。
-
 ## 测试
 
 ```shell
@@ -54,10 +52,10 @@ $ cargo test --test storage -- --ignored --test-threads=1
 Linux 安装 Nginx 后，可检查真实证书和机器人客户端：
 
 ```shell
-$ uv run --with httpx --with cryptography --with pydantic python scripts/test_mtls.py --neo-binary target/release/nomi-auth-neo --plugin-reference /path/to/nomi-auth-plugin
+$ uv run --with httpx --with cryptography --with pydantic python scripts/test_https.py --neo-binary target/release/nomi-auth-neo --plugin-reference /path/to/nomi-auth-plugin
 ```
 
-脚本使用临时证书、数据和本地端口，不读取或重载系统 Nginx 配置。
+脚本在随机本地端口启动独立 Nginx，退出时清理临时进程、证书和数据。
 
 ## 发布
 
@@ -73,7 +71,7 @@ $ git push origin v0.1.0
 
 发布名与 tag 相同，附件为 Linux 的 tar.gz 和 Windows 的 zip。包内程序名不带版本号，包含配置示例和对应平台的许可证。两包上传完成后才公开 release，已公开版本不会自动覆盖。
 
-PR 和手动运行只产生测试包，不创建 tag 或 release。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
+PR 和手动运行生成测试包，tag 推送执行正式发布。更新依赖后，用 `python scripts/collect_licenses.py` 更新第三方声明。
 
 ---
 

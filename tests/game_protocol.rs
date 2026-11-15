@@ -301,3 +301,20 @@ async fn skin_upload_models_ownership_content_addressing_and_clear() {
             .is_none()
     );
 }
+
+#[tokio::test]
+async fn metadata_reports_the_current_implementation_and_package_version() {
+    let fixture = Fixture::new().await;
+    let metadata = fixture
+        .game
+        .handle(&request("GET", "/api/yggdrasil/", json!({})))
+        .await
+        .unwrap()
+        .body
+        .unwrap();
+    assert_eq!(metadata["meta"]["implementationName"], "Nomi Auth Neo");
+    assert_eq!(
+        metadata["meta"]["implementationVersion"],
+        env!("CARGO_PKG_VERSION")
+    );
+}

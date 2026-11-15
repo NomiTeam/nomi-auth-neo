@@ -185,9 +185,11 @@ impl Sessions {
         refresh: &str,
     ) -> Result<Value> {
         let profile = self.accounts.profile(connection, &account.id).await?;
-        let records = sqlx::query("SELECT kind,expires_at FROM tokens WHERE hash IN (?,?)")
+        let records = sqlx::query("SELECT kind,expires_at FROM tokens WHERE hash IN (?,?) AND account_id=? AND expires_at>?")
             .bind(digest(game))
             .bind(digest(refresh))
+            .bind(&account.id)
+            .bind(now())
             .fetch_all(connection)
             .await?;
         let mut game_expiry = None;
@@ -202,12 +204,13 @@ impl Sessions {
                 refresh_expiry = Some(expiry);
             }
         }
+        let invalid = || Error::problem("INVALID_TOKEN", "令牌无效或已过期", 403);
         let selected = json!({"id":profile.uuid,"name":profile.name});
         Ok(json!({
             "login_name":account.login_name,
             "refresh_token":refresh,
-            "refresh_expires_at":refresh_expiry.ok_or_else(Error::internal)?,
-            "game_expires_at":game_expiry.ok_or_else(Error::internal)?,
+            "refresh_expires_at":refresh_expiry.ok_or_else(invalid)?,
+            "game_expires_at":game_expiry.ok_or_else(invalid)?,
             "game":{"accessToken":game,"clientToken":client_token,"selectedProfile":selected,"availableProfiles":[selected]}
         }))
     }

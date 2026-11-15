@@ -397,3 +397,76 @@ async fn existing_retry_credentials_keep_their_values_and_expirations() {
         "12345678901234567890123456789012"
     );
 }
+
+#[tokio::test]
+async fn expired_game_credentials_are_not_replayed_as_a_successful_refresh() {
+    use nomi_auth_neo::core::security::{derive_token, digest, now};
+    let (_directory, auth, database) = existing_account().await;
+    let retry_id = "c".repeat(64);
+    let seed = "spent-refresh";
+    let nonce = "stored-nonce";
+    let game = derive_token(seed, &retry_id, nonce, "game");
+    let refresh = derive_token(seed, &retry_id, nonce, "refresh");
+    let mut transaction = database.write().await.unwrap();
+    for (token, kind, expires) in [
+        (&game, "game", now() - 1),
+        (&refresh, "refresh", now() + 3600),
+    ] {
+        sqlx::query("INSERT INTO tokens VALUES(?,?,?,?,?)")
+            .bind(digest(token))
+            .bind("account")
+            .bind(kind)
+            .bind("device")
+            .bind(expires)
+            .execute(transaction.connection())
+            .await
+            .unwrap();
+    }
+    sqlx::query("INSERT INTO refresh_retries VALUES(?,?,?,?,?,?)")
+        .bind(digest(seed))
+        .bind(digest(&retry_id))
+        .bind(nonce)
+        .bind(digest(&game))
+        .bind(digest(&refresh))
+        .bind(now() + 120)
+        .execute(transaction.connection())
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    let mut replay = authorized("POST", "/api/v1/sessions/refresh", seed, json!({}));
+    replay.request_id = Some(retry_id);
+    assert_eq!(
+        auth.handle(&replay).await.err().map(|error| error.code),
+        Some("INVALID_TOKEN".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn rename_updates_the_account_id_and_releases_its_previous_name() {
+    let (_directory, auth) = service().await;
+    let login = begin(&auth).await;
+    claim(&auth, &login, "first", "claim-first").await;
+    let registered = register(&auth, "Alice", "first", "register-first").await;
+    let session = exchange(&auth, &login, None).await;
+    let path = format!(
+        "/api/v1/game/profiles/{}/name",
+        registered["uuid"].as_str().unwrap()
+    );
+    let renamed = call(
+        &auth,
+        authorized(
+            "PATCH",
+            &path,
+            session["game"]["accessToken"].as_str().unwrap(),
+            json!({"name":"NewAlice"}),
+        ),
+    )
+    .await;
+    assert_eq!(renamed["login_name"], "NewAlice");
+    assert_eq!(renamed["game"]["selectedProfile"]["id"], registered["uuid"]);
+    let other_login = begin(&auth).await;
+    claim(&auth, &other_login, "second", "claim-second").await;
+    let replacement = register(&auth, "Alice", "second", "register-second").await;
+    assert_eq!(replacement["status"], "REGISTERED");
+    assert_ne!(replacement["uuid"], registered["uuid"]);
+}
