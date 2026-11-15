@@ -116,6 +116,23 @@ impl Accounts {
         name: &str,
         event: &E,
     ) -> Result<(String, String)> {
+        let (account_id, profile_id) = self.create_unbound(connection, name).await?;
+        sqlx::query("INSERT INTO identities VALUES(?,?,?,?)")
+            .bind(&account_id)
+            .bind(event.app_id())
+            .bind(event.group_id())
+            .bind(event.member_id())
+            .execute(connection)
+            .await?;
+        Ok((account_id, profile_id))
+    }
+
+    /// Create the shared account/profile pair; callers decide whether to bind QQ.
+    pub async fn create_unbound(
+        &self,
+        connection: &mut AnyConnection,
+        name: &str,
+    ) -> Result<(String, String)> {
         let account_id = Uuid::new_v4().simple().to_string();
         let profile_id = Uuid::new_v4().simple().to_string();
         sqlx::query(
@@ -133,13 +150,6 @@ impl Accounts {
             .bind(name)
             .bind(name.to_lowercase())
             .execute(&mut *connection)
-            .await?;
-        sqlx::query("INSERT INTO identities VALUES(?,?,?,?)")
-            .bind(&account_id)
-            .bind(event.app_id())
-            .bind(event.group_id())
-            .bind(event.member_id())
-            .execute(connection)
             .await?;
         Ok((account_id, profile_id))
     }

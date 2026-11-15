@@ -5,6 +5,7 @@ mod models;
 mod profiles;
 mod sessions;
 pub mod skins;
+mod testing;
 
 use std::sync::Arc;
 
@@ -31,6 +32,17 @@ pub struct Auth {
 }
 
 impl Auth {
+    /// Local administration only: this operation has no HTTP route.
+    pub async fn test_login(&self, code: &str, name: &str) -> Result<Profile> {
+        testing::TestAccounts::new(
+            self.database.clone(),
+            self.accounts.clone(),
+            self.logins.clone(),
+        )
+        .approve(code, name)
+        .await
+    }
+
     pub fn new(settings: Arc<Settings>, database: Arc<Database>) -> Self {
         let accounts = Accounts::new(settings.clone());
         let sessions = Sessions::new(settings.clone(), database.clone(), accounts.clone());

@@ -53,13 +53,33 @@ impl Logins {
     }
 
     pub async fn status(&self, request: &Request, id: &str) -> Result<Reply> {
+        let poll = request.bearer()?;
+        let record = {
+            let mut connection = self.database.pool().acquire().await?;
+            self.find_request(&mut connection, id, poll).await?
+        };
+
+        // Ordinary polling must not compete with registration or session writers.
+        if record.status == "FAILED" {
+            return self.consume_failure(id, poll).await;
+        }
+        Ok(Self::status_reply(&record))
+    }
+
+    async fn consume_failure(&self, id: &str, poll: &str) -> Result<Reply> {
         let mut transaction = self.database.write().await?;
+        // Recheck under the writer lock: only one caller may consume the failure.
         let record = self
-            .find_request(transaction.connection(), id, request.bearer()?)
+            .find_request(transaction.connection(), id, poll)
             .await?;
-        if record.status.as_str() == "FAILED" {
+        if record.status == "FAILED" {
             self.delete(transaction.connection(), id).await?;
         }
+        transaction.commit().await?;
+        Ok(Self::status_reply(&record))
+    }
+
+    fn status_reply(record: &LoginRecord) -> Reply {
         let expired_status = matches!(
             record.status.as_str(),
             "PENDING" | "AWAITING_NAME" | "VERIFIED"
@@ -69,10 +89,9 @@ impl Logins {
         } else {
             record.status.as_str()
         };
-        let result =
-            json!({"status":status,"expires_at":record.expires_at,"error":record.error.as_deref()});
-        transaction.commit().await?;
-        Ok(Reply::ok(result))
+        Reply::ok(
+            json!({"status":status,"expires_at":record.expires_at,"error":record.error.as_deref()}),
+        )
     }
 
     pub async fn cancel(&self, request: &Request, id: &str) -> Result<Reply> {
@@ -145,10 +164,7 @@ impl Logins {
             transaction.commit().await?;
             return Ok(Reply::ok(result));
         }
-        let record = sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE code_hash=?")
-            .bind(code_hash(&event.code)).fetch_optional(&mut *connection).await?
-            .filter(|record| record.expires_at>now())
-            .ok_or_else(|| Error::problem("INVALID_CODE", "登录验证码无效或过期", 400))?;
+        let record = Self::pending_code(connection, &event.code).await?;
         let same_member = record.app_id.as_deref() == Some(event.bot_app_id.as_str())
             && record.group_id.as_deref() == Some(event.group_openid.as_str())
             && record.member_id.as_deref() == Some(event.member_openid.as_str());
@@ -164,7 +180,10 @@ impl Logins {
             ));
         }
         let result = match self.accounts.member(connection, &event).await? {
-            Some(account) => self.confirm_login(connection, &record, &account).await?,
+            Some(account) => {
+                self.confirm_login(connection, &record, &account, "qq_login_verified")
+                    .await?
+            }
             None => self.claim_registration(connection, &record, &event).await?,
         };
         self.accounts
@@ -194,11 +213,22 @@ impl Logins {
         Ok(json!({"status":"AWAITING_NAME"}))
     }
 
-    async fn confirm_login(
+    pub(crate) async fn pending_code(
+        connection: &mut AnyConnection,
+        code: &str,
+    ) -> Result<LoginRecord> {
+        sqlx::query_as::<_, LoginRecord>("SELECT id,poll_hash,account_id,status,expires_at,session_issued,app_id,group_id,member_id,error FROM login_requests WHERE code_hash=?")
+            .bind(code_hash(code)).fetch_optional(connection).await?
+            .filter(|record| record.expires_at > now())
+            .ok_or_else(|| Error::problem("INVALID_CODE", "登录验证码无效或过期", 400))
+    }
+
+    pub(crate) async fn confirm_login(
         &self,
         connection: &mut AnyConnection,
         record: &LoginRecord,
         account: &super::models::Account,
+        action: &str,
     ) -> Result<Value> {
         if account.status != "active" {
             return Err(Error::problem("ACCOUNT_UNAVAILABLE", "账号已停用", 403));
@@ -210,7 +240,7 @@ impl Logins {
             .await?;
         let profile = self.accounts.profile(connection, &account.id).await?;
         self.accounts
-            .audit(connection, "qq_login_verified", Some(&account.id), None)
+            .audit(connection, action, Some(&account.id), None)
             .await?;
         Ok(json!({"status":"VERIFIED","name":profile.name,"uuid":profile.uuid}))
     }

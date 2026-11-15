@@ -157,3 +157,52 @@ fn informational_and_maintenance_commands_do_not_generate_configuration() {
     assert!(!run(directory.path(), &["cleanup"]).status.success());
     assert!(!directory.path().join(".env").exists());
 }
+
+#[test]
+fn local_admin_can_approve_a_launcher_code_without_an_http_admin_endpoint() {
+    let directory = tempfile::tempdir().unwrap();
+    assert!(run(directory.path(), &[]).status.success());
+    let configuration = directory.path().join(".env");
+    let edited = fs::read_to_string(&configuration)
+        .unwrap()
+        .replace("NOMI_BOT_APP_ID=", "NOMI_BOT_APP_ID=test-app")
+        .replace("NOMI_GROUP_OPENID=", "NOMI_GROUP_OPENID=test-group");
+    fs::write(&configuration, &edited).unwrap();
+    let service = Service::start(directory.path());
+    let response = service.request("POST /api/v1/logins HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}").unwrap();
+    let login: serde_json::Value =
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+
+    let output = run(
+        directory.path(),
+        &["test-login", login["code"].as_str().unwrap(), "AdminTest"],
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Test login approved: AdminTest"));
+    assert_eq!(fs::read_to_string(configuration).unwrap(), edited);
+
+    let request = format!(
+        "POST /api/v1/logins/{}/session HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        login["request_id"].as_str().unwrap(),
+        login["poll_token"].as_str().unwrap()
+    );
+    let response = service.request(&request).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200"));
+    let session: serde_json::Value =
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap();
+    assert_eq!(session["game"]["selectedProfile"]["name"], "AdminTest");
+    let response = service.request("POST /api/v1/test-login HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+    assert!(response.starts_with("HTTP/1.1 404"));
+    assert!(
+        !run(
+            directory.path(),
+            &["test-login", login["code"].as_str().unwrap(), "AnotherTest"]
+        )
+        .status
+        .success()
+    );
+}
