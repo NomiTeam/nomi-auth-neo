@@ -1,11 +1,14 @@
 use std::{fs, process::Command};
 
+fn executable() -> std::path::PathBuf {
+    // Cross-built tests can point at a native executable without copying it.
+    std::env::var_os("NOMI_TEST_BINARY")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_nomi-auth-neo").into())
+}
+
 fn run(directory: &std::path::Path, arguments: &[&str]) -> std::process::Output {
-    let binary = directory.join(format!("nomi-auth-neo{}", std::env::consts::EXE_SUFFIX));
-    if !binary.exists() {
-        fs::copy(env!("CARGO_BIN_EXE_nomi-auth-neo"), &binary).unwrap();
-    }
-    let mut command = Command::new(binary);
+    let mut command = Command::new(executable());
     command.current_dir(directory).args(arguments);
     for (name, _) in std::env::vars_os() {
         if name
@@ -33,14 +36,10 @@ impl Drop for Service {
 
 impl Service {
     fn start(directory: &std::path::Path) -> Self {
-        let binary = directory.join(format!("nomi-auth-neo{}", std::env::consts::EXE_SUFFIX));
-        if !binary.exists() {
-            fs::copy(env!("CARGO_BIN_EXE_nomi-auth-neo"), &binary).unwrap();
-        }
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
-        let mut command = Command::new(binary);
+        let mut command = Command::new(executable());
         command
             .current_dir(directory)
             .args(["serve", "--port", &address.port().to_string()]);
