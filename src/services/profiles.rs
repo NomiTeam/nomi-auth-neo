@@ -40,9 +40,11 @@ impl Profiles {
             ));
         }
         let profile = self.accounts.profile(connection, account_id).await?;
-        let collision = sqlx::query("SELECT 1 FROM profiles WHERE name_normalized=? AND uuid<>?")
+        let collision = sqlx::query("SELECT 1 FROM profiles WHERE name_normalized=? AND uuid<>? UNION ALL SELECT 1 FROM accounts WHERE login_normalized=? AND id<>?")
             .bind(name.to_lowercase())
             .bind(&profile.uuid)
+            .bind(name.to_lowercase())
+            .bind(account_id)
             .fetch_optional(&mut *connection)
             .await?;
         if collision.is_some() {
@@ -51,10 +53,9 @@ impl Profiles {
         if profile.name == name {
             return Ok(json!({"uuid":profile.uuid,"name":name}));
         }
-        if profile
-            .last_renamed_at
-            .is_some_and(|changed| changed != 0 && changed + self.settings.rename_cooldown > now())
-        {
+        if profile.last_renamed_at.is_some_and(|changed| {
+            changed != 0 && changed.saturating_add(self.settings.rename_cooldown) > now()
+        }) {
             return Err(Error::problem("RENAME_COOLDOWN", "尚在改名冷却期", 409));
         }
         sqlx::query("UPDATE profiles SET name=?,name_normalized=?,last_renamed_at=? WHERE uuid=?")
@@ -62,6 +63,12 @@ impl Profiles {
             .bind(name.to_lowercase())
             .bind(now())
             .bind(&profile.uuid)
+            .execute(&mut *connection)
+            .await?;
+        sqlx::query("UPDATE accounts SET login_name=?,login_normalized=? WHERE id=?")
+            .bind(name)
+            .bind(name.to_lowercase())
+            .bind(account_id)
             .execute(&mut *connection)
             .await?;
         let detail = serde_json::to_string(&json!({"old":profile.name,"new":name}))?;
@@ -99,7 +106,7 @@ impl Profiles {
             .await?;
         let client_token = super::models::optional_text(&record, "client_token")?;
         let selected = json!({"id":profile.uuid,"name":payload.name});
-        let result = json!({"login_name":account.login_name,"game":{"accessToken":token,"clientToken":client_token,
+        let result = json!({"login_name":payload.name,"game":{"accessToken":token,"clientToken":client_token,
             "selectedProfile":selected,"availableProfiles":[selected]}});
         transaction.commit().await?;
         Ok(Reply::ok(result))
