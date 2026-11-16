@@ -238,6 +238,122 @@ async fn concurrent_admin_approvals_cannot_reassign_one_code() {
 }
 
 #[tokio::test]
+async fn concurrent_disable_and_exchange_cannot_leave_live_tokens() {
+    let (_directory, auth, database) = service().await;
+    let login = begin(&auth).await;
+    let profile = auth
+        .login(login["code"].as_str().unwrap(), "RaceLogin")
+        .await
+        .unwrap();
+    let path = format!(
+        "/api/v1/logins/{}/session",
+        login["request_id"].as_str().unwrap()
+    );
+    let exchange = request("POST", &path, login["poll_token"].as_str(), json!({}));
+    let admin = nomi_auth_neo::services::Admin::new(database.clone());
+    let (disabled, _session) = tokio::join!(
+        admin.set_enabled("RaceLogin", false),
+        auth.handle(&exchange)
+    );
+    disabled.unwrap();
+    assert_eq!(count(&database, "tokens").await, 0);
+    assert_eq!(count(&database, "login_requests").await, 0);
+    let status: String = sqlx::query_scalar("SELECT status FROM accounts WHERE id=?")
+        .bind(&profile.account_id)
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+    assert_eq!(status, "disabled");
+}
+
+async fn exercise_approval_rollback(auth: &Auth, database: &Database) {
+    let login = begin(auth).await;
+    let trigger = if database.is_mysql() {
+        "CREATE TRIGGER block_approval BEFORE UPDATE ON login_requests FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected failure'"
+    } else {
+        "CREATE TRIGGER block_approval BEFORE UPDATE ON login_requests BEGIN SELECT RAISE(ABORT, 'injected failure'); END"
+    };
+    sqlx::query(trigger).execute(database.pool()).await.unwrap();
+    let accounts = count(database, "accounts").await;
+    let profiles = count(database, "profiles").await;
+    let audit = count(database, "audit").await;
+    assert!(
+        auth.login(login["code"].as_str().unwrap(), "RollbackNew")
+            .await
+            .is_err()
+    );
+    assert_eq!(count(database, "accounts").await, accounts);
+    assert_eq!(count(database, "profiles").await, profiles);
+    assert_eq!(count(database, "audit").await, audit);
+    sqlx::query("DROP TRIGGER block_approval")
+        .execute(database.pool())
+        .await
+        .unwrap();
+    let status = auth
+        .handle(&request(
+            "GET",
+            &format!("/api/v1/logins/{}", login["request_id"].as_str().unwrap()),
+            login["poll_token"].as_str(),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(status.body.unwrap()["status"], "PENDING");
+    auth.login(login["code"].as_str().unwrap(), "RollbackNew")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn approval_failure_rolls_back_new_account_and_keeps_the_code_usable() {
+    let (_directory, auth, database) = service().await;
+    exercise_approval_rollback(&auth, &database).await;
+}
+
+async fn exercise_revocation(auth: &Auth, database: &Arc<Database>) {
+    let login = begin(auth).await;
+    let profile = auth
+        .login(login["code"].as_str().unwrap(), "Revoked")
+        .await
+        .unwrap();
+    let unrelated = begin(auth).await;
+    let admin = nomi_auth_neo::services::Admin::new(database.clone());
+    admin.set_enabled("Revoked", false).await.unwrap();
+    admin.set_enabled("Revoked", true).await.unwrap();
+    let path = format!(
+        "/api/v1/logins/{}/session",
+        login["request_id"].as_str().unwrap()
+    );
+    assert!(
+        auth.handle(&request(
+            "POST",
+            &path,
+            login["poll_token"].as_str(),
+            json!({})
+        ))
+        .await
+        .is_err(),
+        "An approval revoked by disable must not become usable after enable"
+    );
+    assert!(
+        auth.login(login["code"].as_str().unwrap(), "Revoked")
+            .await
+            .is_err()
+    );
+    let approved = auth
+        .login(unrelated["code"].as_str().unwrap(), "Revoked")
+        .await
+        .unwrap();
+    assert_eq!(approved.uuid, profile.uuid);
+}
+
+#[tokio::test]
+async fn disabling_revokes_approved_codes_even_after_reenable() {
+    let (_directory, auth, database) = service().await;
+    exercise_revocation(&auth, &database).await;
+}
+
+#[tokio::test]
 #[ignore = "requires an isolated NOMI_TEST_MYSQL_* database; run with --ignored --test-threads=1"]
 async fn mysql_admin_login_roundtrip() {
     let directory = tempfile::tempdir().unwrap();
@@ -261,6 +377,8 @@ async fn mysql_admin_login_roundtrip() {
     let auth = Auth::new(Arc::new(settings), database.clone());
     exercise_login(&auth, &database).await;
     exercise_bound_accounts(&auth, &database).await;
+    exercise_revocation(&auth, &database).await;
+    exercise_approval_rollback(&auth, &database).await;
     clear_test_database(&database).await;
     database.pool().close().await;
 }
