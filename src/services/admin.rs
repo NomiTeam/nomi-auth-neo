@@ -39,6 +39,13 @@ impl Admin {
             .execute(&mut *connection)
             .await?;
         Self::revoke(connection, &account.id).await?;
+        if !enabled {
+            // Re-enabling must not restore approvals issued before the account was disabled.
+            sqlx::query("DELETE FROM login_requests WHERE account_id=?")
+                .bind(&account.id)
+                .execute(&mut *connection)
+                .await?;
+        }
         sqlx::query("INSERT INTO audit(action,account_id,created_at) VALUES(?,?,?)")
             .bind(if enabled { "enable" } else { "disable" })
             .bind(&account.id)

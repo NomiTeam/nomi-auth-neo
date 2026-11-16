@@ -298,6 +298,40 @@ async fn failed_deletion_rolls_back_children_and_missing_accounts_do_not_change_
     exercise_rollback(&auth, &database).await;
 }
 
+#[tokio::test]
+async fn concurrent_enable_and_delete_never_delete_an_active_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let settings = Settings {
+        data_dir: directory.path().to_owned(),
+        ..Settings::default()
+    };
+    let database = Database::open(&settings).await.unwrap();
+    // Separate handles model the running service and an independent CLI process.
+    let other = Database::open(&settings).await.unwrap();
+    let auth = Auth::new(Arc::new(settings), database.clone());
+    let (profile, _) = create(&auth, "RaceDelete").await;
+    let admin = Admin::new(database.clone());
+    admin.set_enabled("RaceDelete", false).await.unwrap();
+    let second = Admin::new(other);
+    let (enabled, deleted) = tokio::join!(
+        admin.set_enabled("RaceDelete", true),
+        second.delete("RaceDelete")
+    );
+    assert_ne!(enabled.is_ok(), deleted.is_ok());
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM accounts WHERE id=?")
+        .bind(&profile.account_id)
+        .fetch_optional(database.pool())
+        .await
+        .unwrap();
+    if enabled.is_ok() {
+        assert_eq!(deleted.unwrap_err().code, "ACCOUNT_ENABLED");
+        assert_eq!(status.as_deref(), Some("active"));
+    } else {
+        assert_eq!(enabled.unwrap_err().code, "ACCOUNT_NOT_FOUND");
+        assert!(status.is_none());
+    }
+}
+
 async fn clear_test_database(database: &Database) {
     let mut transaction = database.write().await.unwrap();
     for table in transfer::TABLES.iter().rev() {
